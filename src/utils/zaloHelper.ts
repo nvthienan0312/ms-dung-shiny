@@ -600,6 +600,91 @@ Trung Tâm Anh Ngữ Ms. Dung Shiny`;
 }
 
 /**
+ * 10c. Báo cáo tình hình điểm danh gửi vào NHÓM ZALO LỚP
+ * Tự động gửi vào nhóm lớp ngay sau khi hoàn thành điểm danh:
+ * Gồm: Lớp nào, Ngày nào, Ca mấy giờ, Số lượng đi đủ, Danh sách học sinh vắng kèm họ tên
+ */
+export function generateAttendanceGroupReportZaloMessage(params: {
+  className: string;
+  classCode?: string;
+  dateStr: string;
+  startTime: string;
+  endTime: string;
+  classroomName?: string;
+  teacherName?: string;
+  assistantName?: string;
+  totalStudents: number;
+  presentCount: number;
+  absentStudents: Array<{
+    name: string;
+    code?: string;
+    note?: string;
+  }>;
+  isMakeupClass?: boolean;
+}): string {
+  const {
+    className,
+    classCode,
+    dateStr,
+    startTime,
+    endTime,
+    classroomName,
+    teacherName,
+    assistantName,
+    totalStudents,
+    presentCount,
+    absentStudents,
+    isMakeupClass = false,
+  } = params;
+
+  // Format ngày tiếng Việt chuẩn đẹp
+  let formattedDate = dateStr;
+  try {
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+      formattedDate = `${days[d.getDay()]}, ngày ${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  } catch (_e) {}
+
+  const absentCount = absentStudents.length;
+  const attendanceRate = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
+
+  let absentSection = "";
+  if (absentCount === 0) {
+    absentSection = `🎉 TÌNH HÌNH VẮNG: Không có học sinh vắng (100% các con đi học đầy đủ và đúng giờ! ❤️)`;
+  } else {
+    const listNames = absentStudents
+      .map((st, idx) => `  ${idx + 1}. ${st.name}${st.note ? ` (Lý do: ${st.note})` : ""}`)
+      .join("\n");
+    absentSection = `❌ DANH SÁCH HỌC SINH VẮNG (${absentCount} con):\n${listNames}\n\n💡 Ghi chú: Các con vắng buổi hôm nay trung tâm sẽ bảo lưu bài giảng, gửi tài liệu ôn tập và sắp xếp lịch học bù trong tháng để đảm bảo kiến thức.`;
+  }
+
+  const headerTitle = isMakeupClass 
+    ? `📢 [MS. DUNG SHINY] - BÁO CÁO ĐIỂM DANH CA HỌC BÙ`
+    : `📢 [MS. DUNG SHINY] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP`;
+
+  return `${headerTitle}
+━━━━━━━━━━━━━━━━━━━━━━━━
+🏫 Lớp học: ${className}${classCode ? ` (Mã: ${classCode})` : ""}
+📅 Ngày học: ${formattedDate}
+⏰ Ca học: ${startTime} - ${endTime}${classroomName ? ` (Phòng: ${classroomName})` : ""}
+👩‍🏫 Giáo viên: ${teacherName || "Giáo viên phụ trách"}
+👨‍🏫 Trợ giảng: ${assistantName || "Trợ giảng lớp"}
+
+📊 TÌNH HÌNH CHUYÊN CẦN BUỔI HỌC:
+• Sĩ số lớp: ${totalStudents} học sinh
+• Có mặt đủ: ${presentCount} / ${totalStudents} học sinh (${attendanceRate}%)
+• Vắng mặt: ${absentCount} học sinh
+
+${absentSection}
+
+Quý Phụ Huynh cần hỗ trợ thêm vui lòng nhắn trực tiếp vào nhóm lớp hoặc liên hệ Hotline: 0964.645.174.
+Trung tâm xin chân thành cảm ơn Quý Phụ Huynh! ❤️`;
+}
+
+/**
  * 11. Giáo viên gửi Thông báo Buổi học (Nội dung & BTVN) tới toàn bộ phụ huynh trong lớp
  */
 export function generateClassLogZaloMessage(params: {

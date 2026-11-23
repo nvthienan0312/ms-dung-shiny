@@ -41,7 +41,11 @@ import {
 } from "lucide-react";
 import { getTodayDateString } from "@/utils/dateHelper";
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
-import { generateAttendanceAbsentZaloMessage, copyToClipboardAndOpenZalo } from "@/utils/zaloHelper";
+import { 
+  generateAttendanceAbsentZaloMessage, 
+  generateAttendanceGroupReportZaloMessage,
+  copyToClipboardAndOpenZalo 
+} from "@/utils/zaloHelper";
 
 export interface AttendanceManagerProps {
   userRole?: "ASSISTANT" | "ADMIN" | "TEACHER";
@@ -114,6 +118,7 @@ export default function AttendanceManager({
     updateMakeupClassAttendance,
     sendMakeupContentToParents,
     sendZaloMessageToParent,
+    sendZaloClassGroupMessage,
     renderZaloTemplate,
   } = useCenter();
 
@@ -124,6 +129,20 @@ export default function AttendanceManager({
 
   // Selected date reference (Tracking thời gian thực)
   const [selectedDateStr, setSelectedDateStr] = useState<string>(() => getTodayDateString());
+
+  // Tùy chọn Tự động gửi báo cáo điểm danh vào nhóm Zalo lớp ngay sau khi lưu
+  const [autoSendZaloGroup, setAutoSendZaloGroup] = useState<boolean>(true);
+
+  // Modal Chỉnh Sửa / Xem Trước Báo Cáo Điểm Danh Nhóm Zalo Lớp
+  const [groupZaloModal, setGroupZaloModal] = useState<{
+    isOpen: boolean;
+    className: string;
+    initialGroupUrl: string;
+    initialGroupId: string;
+    initialContent: string;
+  } | null>(null);
+
+  const [isSendingGroupZalo, setIsSendingGroupZalo] = useState<boolean>(false);
 
   // Modal Chỉnh Sửa Tin Nhắn Zalo Báo Vắng Cho Phụ Huynh
   const [editZaloModal, setEditZaloModal] = useState<{
@@ -553,7 +572,158 @@ export default function AttendanceManager({
     setEditZaloModal(null);
   };
 
-  const handleSaveAttendance = () => {
+  // Sinh nội dung báo cáo điểm danh gửi nhóm Zalo lớp
+  const buildAttendanceGroupReportContent = () => {
+    if (!currentClass) return "";
+    const presentList = formEntries.filter((e) => e.status === "PRESENT");
+    const absentList = formEntries.filter((e) => e.status === "ABSENT");
+
+    let formattedDate = selectedDateStr;
+    try {
+      const parts = selectedDateStr.split("-");
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+        formattedDate = `${days[d.getDay()]}, ngày ${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+    } catch (_e) {}
+
+    const absentCount = absentList.length;
+    const totalStudents = formEntries.length;
+    const attendanceRate = totalStudents > 0 ? Math.round((presentList.length / totalStudents) * 100) : 0;
+
+    let absentSection = "";
+    if (absentCount === 0) {
+      absentSection = `🎉 TÌNH HÌNH VẮNG: Không có học sinh vắng (100% các con đi học đầy đủ và đúng giờ! ❤️)`;
+    } else {
+      const listNames = absentList
+        .map((st, idx) => `  ${idx + 1}. ${st.studentName}${st.note ? ` (Lý do: ${st.note})` : ""}`)
+        .join("\n");
+      absentSection = `❌ DANH SÁCH HỌC SINH VẮNG (${absentCount} con):\n${listNames}\n\n💡 Ghi chú: Các con vắng buổi hôm nay trung tâm sẽ bảo lưu bài giảng, gửi tài liệu ôn tập và sắp xếp lịch học bù trong tháng để đảm bảo kiến thức.`;
+    }
+
+    try {
+      return renderZaloTemplate("attendanceGroupReport", {
+        className: currentClass.name,
+        dateStr: formattedDate,
+        timeSlot: `${activeSessionItem?.startTime || "17:30"} - ${activeSessionItem?.endTime || "19:00"}`,
+        roomName: activeSessionItem?.roomName || currentClass.classroom || "Phòng học",
+        teacherName: effectiveTeacher || "Giáo viên phụ trách",
+        assistantName: effectiveAssistant || "Trợ giảng lớp",
+        totalStudents: String(totalStudents),
+        presentCount: String(presentList.length),
+        presentPercent: String(attendanceRate),
+        absentCount: String(absentCount),
+        absentListSection: absentSection,
+        hotline: "0964 645 174",
+      });
+    } catch {
+      return generateAttendanceGroupReportZaloMessage({
+        className: currentClass.name,
+        classCode: currentClass.code,
+        dateStr: selectedDateStr,
+        startTime: activeSessionItem?.startTime || "17:30",
+        endTime: activeSessionItem?.endTime || "19:00",
+        classroomName: activeSessionItem?.roomName || currentClass.classroom,
+        teacherName: effectiveTeacher,
+        assistantName: effectiveAssistant,
+        totalStudents,
+        presentCount: presentList.length,
+        absentStudents: absentList.map((st) => ({
+          name: st.studentName,
+          code: st.studentCode,
+          note: st.note,
+        })),
+      });
+    }
+  };
+
+  // Sinh nội dung báo cáo điểm danh lớp học bù gửi nhóm Zalo
+  const buildMakeupAttendanceGroupReportContent = () => {
+    if (!activeMakeupClass) return "";
+    const attendedList = makeupEntries.filter((e) => e.status === "ATTENDED");
+    const absentList = makeupEntries.filter((e) => e.status === "ABSENT");
+
+    return generateAttendanceGroupReportZaloMessage({
+      className: activeMakeupClass.title,
+      classCode: "HỌC BÙ",
+      dateStr: activeMakeupClass.dateStr,
+      startTime: activeMakeupClass.startTime,
+      endTime: activeMakeupClass.endTime,
+      classroomName: activeMakeupClass.classroomName,
+      teacherName: activeMakeupClass.roleInCharge === "TEACHER" ? activeMakeupClass.teacherOrAssistantName : "—",
+      assistantName: activeMakeupClass.roleInCharge === "ASSISTANT" ? activeMakeupClass.teacherOrAssistantName : "—",
+      totalStudents: makeupEntries.length,
+      presentCount: attendedList.length,
+      absentStudents: absentList.map((st) => ({
+        name: st.studentName,
+        code: st.studentCode,
+        note: st.exchangeNote,
+      })),
+      isMakeupClass: true,
+    });
+  };
+
+  // Mở modal xem trước & chỉnh sửa báo cáo điểm danh nhóm Zalo
+  const handleOpenGroupReportZalo = () => {
+    if (isMakeupSession) {
+      if (!activeMakeupClass) return;
+      const content = buildMakeupAttendanceGroupReportContent();
+      const targetClass = classes.find((c) => c.id === activeMakeupClass.targetClassId);
+      setGroupZaloModal({
+        isOpen: true,
+        className: activeMakeupClass.title,
+        initialGroupUrl: targetClass?.zaloGroupUrl || "",
+        initialGroupId: targetClass?.zaloGroupId || "",
+        initialContent: content,
+      });
+    } else {
+      if (!currentClass) return;
+      const content = buildAttendanceGroupReportContent();
+      setGroupZaloModal({
+        isOpen: true,
+        className: currentClass.name,
+        initialGroupUrl: currentClass.zaloGroupUrl || "",
+        initialGroupId: currentClass.zaloGroupId || "",
+        initialContent: content,
+      });
+    }
+  };
+
+  // Xác nhận gửi báo cáo điểm danh vào nhóm Zalo lớp
+  const handleConfirmSendGroupZalo = async (editedContent: string, groupUrl?: string, groupId?: string) => {
+    if (!groupZaloModal) return;
+    setIsSendingGroupZalo(true);
+    try {
+      const targetClassId = isMakeupSession
+        ? activeMakeupClass?.targetClassId && activeMakeupClass.targetClassId !== "ALL"
+          ? activeMakeupClass.targetClassId
+          : classes[0]?.id || "class-1"
+        : currentClass?.id || "";
+
+      const res = await sendZaloClassGroupMessage(
+        targetClassId,
+        editedContent,
+        (userRole as any) || "ASSISTANT",
+        currentStaffId || activeStaff.id,
+        groupUrl,
+        groupId
+      );
+
+      setSaveSuccessMessage(
+        `🎉 ${res.message || `Đã gửi báo cáo điểm danh vào nhóm Zalo lớp ${groupZaloModal.className} thành công!`}`
+      );
+      setTimeout(() => setSaveSuccessMessage(null), 5000);
+    } catch (err: any) {
+      setSaveSuccessMessage(`⚠️ Lỗi khi gửi tin: ${err?.message || "Lỗi gửi tin"}`);
+      setTimeout(() => setSaveSuccessMessage(null), 5000);
+    } finally {
+      setIsSendingGroupZalo(false);
+      setGroupZaloModal(null);
+    }
+  };
+
+  const handleSaveAttendance = async () => {
     if (isReadOnly || !currentClass) return;
 
     const recordsToSave = formEntries
@@ -579,13 +749,32 @@ export default function AttendanceManager({
       effectiveAssistant
     );
 
+    // 🚀 TÍNH NĂNG MỚI: LẬP TỨC GỬI THÔNG TIN ĐIỂM DANH VÀO NHÓM LỚP QUA BOT ZALO
+    let autoZaloNote = "";
+    if (autoSendZaloGroup) {
+      try {
+        const reportContent = buildAttendanceGroupReportContent();
+        const res = await sendZaloClassGroupMessage(
+          currentClass.id,
+          reportContent,
+          (userRole as any) || "ASSISTANT",
+          currentStaffId || activeStaff.id
+        );
+        if (res.success) {
+          autoZaloNote = ` 💬 Đồng thời đã lập tức gửi báo cáo điểm danh vào nhóm Zalo lớp ${currentClass.name}!`;
+        }
+      } catch (_e) {
+        console.warn("Lỗi tự động gửi nhóm Zalo sau điểm danh:", _e);
+      }
+    }
+
     setSaveSuccessMessage(
-      `Đã lưu điểm danh thành công cho ${recordsToSave.length} học sinh trong ca học.`
+      `Đã lưu điểm danh thành công cho ${recordsToSave.length} học sinh trong ca học.${autoZaloNote}`
     );
-    setTimeout(() => setSaveSuccessMessage(null), 4500);
+    setTimeout(() => setSaveSuccessMessage(null), 5000);
   };
 
-  const handleSaveMakeupAttendance = () => {
+  const handleSaveMakeupAttendance = async () => {
     if (isReadOnly || !activeMakeupClass) return;
 
     const records = makeupEntries.map((e) => ({
@@ -594,8 +783,29 @@ export default function AttendanceManager({
     }));
 
     const result = updateMakeupClassAttendance(activeMakeupClass.id, records);
-    setSaveSuccessMessage(result.message);
-    setTimeout(() => setSaveSuccessMessage(null), 4500);
+
+    let autoZaloNote = "";
+    if (autoSendZaloGroup) {
+      try {
+        const reportContent = buildMakeupAttendanceGroupReportContent();
+        const targetClassId = activeMakeupClass.targetClassId && activeMakeupClass.targetClassId !== "ALL"
+          ? activeMakeupClass.targetClassId
+          : classes[0]?.id || "class-1";
+
+        const res = await sendZaloClassGroupMessage(
+          targetClassId,
+          reportContent,
+          (userRole as any) || "ASSISTANT",
+          currentStaffId || activeStaff.id
+        );
+        if (res.success) {
+          autoZaloNote = ` 💬 Đồng thời đã gửi báo cáo ca bù vào nhóm Zalo!`;
+        }
+      } catch (_e) {}
+    }
+
+    setSaveSuccessMessage(`${result.message}${autoZaloNote}`);
+    setTimeout(() => setSaveSuccessMessage(null), 5000);
   };
 
   const handleConfirmSendMakeupContent = () => {
@@ -900,6 +1110,34 @@ export default function AttendanceManager({
               {/* Quick Actions (Trợ Giảng trực tiếp thực hiện; Admin giám sát) */}
               {!isReadOnly ? (
                 <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  {/* Tùy chọn tự động gửi báo cáo vào nhóm Zalo lớp ngay sau khi lưu */}
+                  <label 
+                    className="flex items-center gap-1.5 text-[11px] text-blue-900 font-semibold cursor-pointer select-none bg-blue-50/80 hover:bg-blue-100/80 px-2.5 py-1.5 rounded-xl border border-blue-200 transition" 
+                    title="Tự động lập tức gửi báo cáo điểm danh vào nhóm Zalo lớp ngay sau khi nhấn nút Lưu Điểm Danh"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={autoSendZaloGroup}
+                      onChange={(e) => setAutoSendZaloGroup(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="hidden md:inline">Gửi ngay vào nhóm Zalo lớp</span>
+                    <span className="md:hidden">Zalo nhóm</span>
+                  </label>
+
+                  {/* Nút Xem trước / Gửi Báo Cáo Nhóm Zalo thủ công */}
+                  <button
+                    type="button"
+                    onClick={handleOpenGroupReportZalo}
+                    className="px-2.5 sm:px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                    title="Xem trước & Gửi báo cáo tình hình điểm danh vào nhóm Zalo lớp"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Báo Cáo Nhóm Zalo</span>
+                    <span className="sm:hidden">Nhóm Zalo</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleMarkAllPresent}
@@ -943,7 +1181,18 @@ export default function AttendanceManager({
                 </div>
               ) : (
                 /* Admin view controls */
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Nút xem trước báo cáo nhóm Zalo cho Admin / Teacher */}
+                  <button
+                    type="button"
+                    onClick={handleOpenGroupReportZalo}
+                    className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs rounded-xl transition flex items-center gap-1 shadow-2xs"
+                    title="Xem trước báo cáo điểm danh gửi vào nhóm Zalo lớp"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Báo Cáo Nhóm Zalo</span>
+                  </button>
+
                   {isMakeupSession && (
                     <button
                       type="button"
@@ -954,7 +1203,7 @@ export default function AttendanceManager({
                       <span>Xem Báo Cáo Buổi Bù</span>
                     </button>
                   )}
-                  <span className="text-[10px] text-slate-500 font-medium">
+                  <span className="text-[10px] text-slate-500 font-medium hidden sm:inline">
                     (Admin chỉ giám sát kiểm soát)
                   </span>
                 </div>
@@ -1420,6 +1669,25 @@ export default function AttendanceManager({
           initialContent={editZaloModal.initialContent}
           templateBadge="Báo Vắng Điểm Danh"
           onSend={handleConfirmSendAbsentZalo}
+        />
+      )}
+
+      {/* MODAL CHỈNH SỬA / GỬI BÁO CÁO ĐIỂM DANH VÀO NHÓM ZALO LỚP */}
+      {groupZaloModal && (
+        <EditZaloMessageModal
+          isOpen={groupZaloModal.isOpen}
+          onClose={() => setGroupZaloModal(null)}
+          title={`Báo Cáo Điểm Danh Nhóm Zalo - ${groupZaloModal.className}`}
+          recipientName={`Nhóm Zalo Lớp: ${groupZaloModal.className}`}
+          recipientPhone={groupZaloModal.initialGroupUrl || "Nhóm Zalo Lớp"}
+          className={groupZaloModal.className}
+          initialContent={groupZaloModal.initialContent}
+          templateBadge="Báo Cáo Điểm Danh Nhóm Lớp"
+          isClassGroup={true}
+          initialGroupUrl={groupZaloModal.initialGroupUrl}
+          initialGroupId={groupZaloModal.initialGroupId}
+          senderRole={(userRole as any) || "ASSISTANT"}
+          onSend={handleConfirmSendGroupZalo}
         />
       )}
     </div>

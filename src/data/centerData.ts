@@ -859,6 +859,7 @@ export interface ZaloMasterTemplates {
   tuitionOverdue: string;
   tuitionMultiMonth: string;
   attendanceAbsent: string;
+  attendanceGroupReport: string;
   classLogParent: string;
   classLogGroup: string;
   makeupSurvey: string;
@@ -970,6 +971,26 @@ Hôm nay (ngày {dateStr}), lớp {className} đã bắt đầu ca học nhưng 
 
 💡 Quý Phụ huynh yên tâm: Học phí của con được bảo lưu bài giảng đầy đủ. Trung tâm sẽ cập nhật quyền lợi học bù trong tháng và sắp xếp lịch ôn tập bổ trợ kiến thức cho con sớm nhất.
 Hotline: {hotline}`,
+
+  attendanceGroupReport: `📢 [MS. DUNG SHINY] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP
+━━━━━━━━━━━━━━━━━━━━━━━━
+🏫 Lớp học: {className}
+📅 Ngày học: {dateStr}
+⏰ Ca học: {timeSlot}
+🏢 Phòng học: {roomName}
+👩‍🏫 Giáo viên: {teacherName}
+👨‍🏫 Trợ giảng: {assistantName}
+
+📊 TÌNH HÌNH CHUYÊN CẦN BUỔI HỌC:
+• Tổng sĩ số lớp: {totalStudents} học sinh
+• Có mặt đủ: {presentCount} / {totalStudents} học sinh ({presentPercent}%)
+• Vắng mặt: {absentCount} học sinh
+
+{absentListSection}
+
+💡 Lưu ý: Các bạn học sinh vắng mặt sẽ được trung tâm bảo lưu bài giảng và sắp xếp lịch học bù trong tháng để đảm bảo kiến thức.
+Hotline hỗ trợ: {hotline}
+Trung tâm xin chân thành cảm ơn Quý Phụ Huynh! ❤️`,
 
   classLogParent: `[MS. DUNG SHINY ENGLISH CENTER]
 THÔNG BÁO BUỔI HỌC & BTVN NGÀY {dateStr}
