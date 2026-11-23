@@ -89,6 +89,7 @@ export default function HomePage() {
   const [isAdminChangePasswordOpen, setIsAdminChangePasswordOpen] = useState<boolean>(false);
   const [isZaloTemplatesOpen, setIsZaloTemplatesOpen] = useState<boolean>(false);
   const [isZaloSessionOpen, setIsZaloSessionOpen] = useState<boolean>(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Synchronize activeRole when user logs in or switches account
   useEffect(() => {
@@ -199,8 +200,8 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Header Right: Zalo Handshake, Admin Actions & Current User */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        {/* Header Right: Desktop & Mobile Responsive */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* Cloud Database (Supabase PostgreSQL) Status */}
           <button
             onClick={() => triggerCloudSync()}
@@ -235,11 +236,11 @@ export default function HomePage() {
             <span className="hidden sm:inline">Cloud DB:</span>
             <span className="text-[11px] sm:text-xs">
               {cloudSyncStatus === "SYNCED"
-                ? "Đã Kết Nối"
+                ? "Cloud DB"
                 : cloudSyncStatus === "SYNCING"
-                ? "Đang Lưu..."
+                ? "Lưu..."
                 : cloudSyncStatus === "ERROR"
-                ? "Thử Lại"
+                ? "Lỗi"
                 : "Chờ"}
             </span>
           </button>
@@ -259,55 +260,127 @@ export default function HomePage() {
                 isZaloSessionValid(activeRole as any) ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
               }`} />
               <span className="hidden sm:inline">Zalo Bot:</span>
-              <span className="text-[11px] sm:text-xs">{isZaloSessionValid(activeRole as any) ? "Zalo OK" : "Quét QR"}</span>
+              <span className="text-[11px] sm:text-xs">{isZaloSessionValid(activeRole as any) ? "Zalo" : "QR"}</span>
             </button>
           )}
 
-          {/* Admin Message Templates Config (Task 3 - Admin độc quyền) */}
+          {/* Desktop-only Admin Quick Buttons */}
           {currentUserAccount.role === "ADMIN" && (
-            <button
-              onClick={() => setIsZaloTemplatesOpen(true)}
-              className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 transition shadow-xs text-xs font-bold cursor-pointer active-press"
-              title="Quản trị viên cấu hình mẫu tin nhắn tự động toàn hệ thống"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-              <span className="hidden md:inline">Mẫu Tin Nhắn</span>
-            </button>
+            <>
+              <button
+                onClick={() => setIsZaloTemplatesOpen(true)}
+                className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 transition shadow-xs text-xs font-bold cursor-pointer active-press"
+                title="Quản trị viên cấu hình mẫu tin nhắn tự động toàn hệ thống"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                <span>Mẫu Tin Nhắn</span>
+              </button>
+
+              <button
+                onClick={() => setIsAdminChangePasswordOpen(true)}
+                className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition shadow-xs text-xs font-bold active-press cursor-pointer"
+                title="Đổi mật khẩu tài khoản Quản trị viên"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                <span>Đổi MK Admin</span>
+              </button>
+            </>
           )}
 
-          {/* Admin Change Password Button (Only Admin has permission to change password) */}
-          {currentUserAccount.role === "ADMIN" && (
-            <button
-              onClick={() => setIsAdminChangePasswordOpen(true)}
-              className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition shadow-xs text-xs font-bold active-press cursor-pointer"
-              title="Đổi mật khẩu tài khoản Quản trị viên"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden md:inline">Đổi MK Admin</span>
-            </button>
-          )}
-
-          {/* Current Active User Indicator */}
-          <div className="flex items-center gap-1.5 sm:gap-3 pl-1.5 sm:pl-2 border-l border-slate-200">
-            <div className="hidden sm:flex flex-col text-right">
+          {/* Desktop User Info & Logout Button */}
+          <div className="hidden sm:flex items-center gap-2 sm:gap-3 pl-2 border-l border-slate-200">
+            <div className="flex flex-col text-right">
               <span className="text-xs font-semibold text-slate-900">{currentUser.name}</span>
               <span className="text-[10px] text-slate-500 font-mono">{currentUser.phone || currentUser.title}</span>
             </div>
             <img 
               src={currentUser.avatarUrl} 
               alt={currentUser.name} 
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 border border-amber-200 ring-2 ring-amber-100 shrink-0" 
+              className="w-9 h-9 rounded-full bg-slate-100 border border-amber-200 ring-2 ring-amber-100 shrink-0" 
             />
 
-            {/* Logout Button */}
             <button
               onClick={logout}
-              className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition shadow-xs text-xs font-bold active-press cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition shadow-xs text-xs font-bold active-press cursor-pointer"
               title="Đăng xuất khỏi hệ thống"
             >
               <LogOut className="w-3.5 h-3.5 text-rose-600" />
-              <span className="hidden sm:inline">Đăng Xuất</span>
+              <span>Đăng Xuất</span>
             </button>
+          </div>
+
+          {/* Mobile User Avatar Trigger (Opens mobile user menu) */}
+          <div className="relative sm:hidden">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="w-8 h-8 rounded-full bg-slate-100 border border-amber-400 ring-2 ring-amber-200 overflow-hidden shrink-0 flex items-center justify-center cursor-pointer active-press shadow-xs"
+              aria-label="Tài khoản cá nhân"
+            >
+              <img 
+                src={currentUser.avatarUrl} 
+                alt={currentUser.name} 
+                className="w-full h-full object-cover" 
+              />
+            </button>
+
+            {/* Mobile Popover Menu */}
+            {isMobileMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40 bg-black/25 backdrop-blur-2xs" 
+                  onClick={() => setIsMobileMenuOpen(false)} 
+                />
+                <div className="absolute right-0 top-10 z-50 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="pb-2 border-b border-slate-100">
+                    <div className="font-bold text-xs text-slate-900 truncate">{currentUser.name}</div>
+                    <div className="text-[11px] text-slate-500 font-mono mt-0.5">{currentUser.phone || currentUser.title}</div>
+                    <div className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      {activeRole === "ADMIN" ? "Quản trị viên" : activeRole === "TEACHER" ? "Giáo viên" : activeRole === "ASSISTANT" ? "Trợ giảng" : "Phụ huynh"}
+                    </div>
+                  </div>
+
+                  {currentUserAccount.role === "ADMIN" && (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          setIsAdminChangePasswordOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer text-left"
+                      >
+                        <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Đổi Mật Khẩu Admin</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          setIsZaloTemplatesOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer text-left"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Cấu Hình Mẫu Tin Nhắn</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      logout();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition cursor-pointer active-press"
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Đăng Xuất</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>

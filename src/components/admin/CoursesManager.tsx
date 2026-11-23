@@ -129,7 +129,7 @@ export default function CoursesManager() {
 
       {/* Courses Table View (Dạng Bảng Chuyên Nghiệp) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto scrollbar-thin">
+        <div className="overflow-x-auto no-scrollbar mobile-tabs">
           <table className="w-full text-left text-xs min-w-[750px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
