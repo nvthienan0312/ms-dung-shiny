@@ -96,7 +96,7 @@ export default function PWAInstaller() {
   return (
     <>
       {/* Nút / Banner cài đặt nổi ở góc dưới */}
-      <div className="fixed bottom-4 right-4 z-40 max-w-sm w-[calc(100%-2rem)] sm:w-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 max-w-sm w-[calc(100%-2rem)] sm:w-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
         <div className="bg-white/95 backdrop-blur-md border border-amber-300 rounded-2xl p-3 sm:p-3.5 shadow-xl shadow-amber-500/10 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center shrink-0 shadow-sm border border-amber-200">

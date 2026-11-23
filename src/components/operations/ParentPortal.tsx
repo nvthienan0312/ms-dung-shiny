@@ -611,63 +611,84 @@ export default function ParentPortal() {
       </div>
 
       {/* ============================================================== */}
-      {/* MOBILE-FIRST TAB NAVIGATION */}
+      {/* MOBILE-FIRST TAB NAVIGATION (Android + iOS 1-Tap & Swipe) */}
       {/* ============================================================== */}
-      <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs overflow-x-auto scrollbar-thin">
-        <button
-          onClick={() => setActiveTab("FEED")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-            activeTab === "FEED"
-              ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" /> Sổ Liên Lạc (Hôm Nay)
-        </button>
+      <div className="w-full space-y-2">
+        {/* Mobile Dropdown for small screens */}
+        <div className="sm:hidden w-full">
+          <div className="flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs">
+            <span className="text-[11px] font-bold text-slate-600 pl-1 shrink-0">Mục xem:</span>
+            <select
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-900 focus:outline-none"
+            >
+              <option value="FEED">📖 Sổ Liên Lạc (Hôm Nay)</option>
+              <option value="TIMETABLE">📅 Thời Khóa Biểu Của Bé</option>
+              <option value="HOMEWORK">📝 Bài Tập Về Nhà ({studentSubmissions.length})</option>
+              <option value="EXAM_REPORTS">📊 Báo Cáo & Bài Thi ({studentExamReports.length})</option>
+              <option value="TUITION_LEAVE">💰 Học Phí & Nghỉ Phép</option>
+            </select>
+          </div>
+        </div>
 
-        <button
-          onClick={() => setActiveTab("TIMETABLE")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-            activeTab === "TIMETABLE"
-              ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu Của Bé
-        </button>
+        {/* Swipeable Tabs for tablet / desktop and swipe gestures */}
+        <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs overflow-x-auto no-scrollbar mobile-tabs">
+          <button
+            onClick={() => setActiveTab("FEED")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition active-press ${
+              activeTab === "FEED"
+                ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" /> Sổ Liên Lạc (Hôm Nay)
+          </button>
 
-        <button
-          onClick={() => setActiveTab("HOMEWORK")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-            activeTab === "HOMEWORK"
-              ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <FileCheck className="w-3.5 h-3.5" /> Bài Tập Về Nhà ({studentSubmissions.length})
-        </button>
+          <button
+            onClick={() => setActiveTab("TIMETABLE")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition active-press ${
+              activeTab === "TIMETABLE"
+                ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu Của Bé
+          </button>
 
-        <button
-          onClick={() => setActiveTab("EXAM_REPORTS")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-            activeTab === "EXAM_REPORTS"
-              ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <FileCheck2 className="w-3.5 h-3.5" /> Báo Cáo & Bài Thi ({studentExamReports.length})
-        </button>
+          <button
+            onClick={() => setActiveTab("HOMEWORK")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition active-press ${
+              activeTab === "HOMEWORK"
+                ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <FileCheck className="w-3.5 h-3.5" /> Bài Tập Về Nhà ({studentSubmissions.length})
+          </button>
 
-        <button
-          onClick={() => setActiveTab("TUITION_LEAVE")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-            activeTab === "TUITION_LEAVE"
-              ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Coins className="w-3.5 h-3.5" /> Học Phí & Nghỉ Phép
-        </button>
+          <button
+            onClick={() => setActiveTab("EXAM_REPORTS")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition active-press ${
+              activeTab === "EXAM_REPORTS"
+                ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <FileCheck2 className="w-3.5 h-3.5" /> Báo Cáo & Bài Thi ({studentExamReports.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab("TUITION_LEAVE")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition active-press ${
+              activeTab === "TUITION_LEAVE"
+                ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" /> Học Phí & Nghỉ Phép
+          </button>
+        </div>
       </div>
 
       {/* ============================================================== */}

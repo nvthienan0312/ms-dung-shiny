@@ -1090,7 +1090,7 @@ export default function AttendanceManager({
                             <button
                               type="button"
                               onClick={() => handleSetMakeupStatus(entry.studentId, "ATTENDED")}
-                              className={`py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 ${
+                              className={`py-2 sm:py-1.5 px-3 min-h-[42px] sm:min-h-0 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
                                 entry.status === "ATTENDED"
                                   ? "bg-emerald-600 text-white shadow-xs font-bold"
                                   : "text-slate-700 hover:text-emerald-800 hover:bg-emerald-50"
@@ -1103,7 +1103,7 @@ export default function AttendanceManager({
                             <button
                               type="button"
                               onClick={() => handleSetMakeupStatus(entry.studentId, "ABSENT")}
-                              className={`py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 ${
+                              className={`py-2 sm:py-1.5 px-3 min-h-[42px] sm:min-h-0 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
                                 entry.status === "ABSENT"
                                   ? "bg-rose-600 text-white shadow-xs font-bold"
                                   : "text-slate-700 hover:text-rose-800 hover:bg-rose-50"
@@ -1203,7 +1203,7 @@ export default function AttendanceManager({
                               <button
                                 type="button"
                                 onClick={() => handleSetStatus(entry.studentId, "PRESENT")}
-                                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 ${
+                                className={`py-2 sm:py-1.5 px-3 min-h-[42px] sm:min-h-0 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
                                   entry.status === "PRESENT"
                                     ? "bg-emerald-600 text-white shadow-xs font-bold"
                                     : "text-slate-700 hover:text-emerald-800 hover:bg-emerald-50"
@@ -1216,7 +1216,7 @@ export default function AttendanceManager({
                               <button
                                 type="button"
                                 onClick={() => handleSetStatus(entry.studentId, "ABSENT")}
-                                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 ${
+                                className={`py-2 sm:py-1.5 px-3 min-h-[42px] sm:min-h-0 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
                                   entry.status === "ABSENT"
                                     ? "bg-rose-600 text-white shadow-xs font-bold"
                                     : "text-slate-700 hover:text-rose-800 hover:bg-rose-50"

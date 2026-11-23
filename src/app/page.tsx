@@ -186,25 +186,25 @@ export default function HomePage() {
   const assistantsCount = staff.filter((s) => s.role === "ASSISTANT").length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800">
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200 px-3 sm:px-4 lg:px-6 py-2.5 flex items-center justify-between gap-2 shadow-sm">
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-md shadow-amber-200 shrink-0">
+    <div className="min-h-[100dvh] bg-slate-50 text-slate-800 flex flex-col">
+      {/* Top Navigation Bar with iOS Safe-Area support */}
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-4 lg:px-6 pt-[max(0.6rem,env(safe-area-inset-top))] pb-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs">
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-white font-bold text-base sm:text-xl shadow-md shadow-amber-200 shrink-0">
             ✨
           </div>
           <div className="shrink-0">
-            <h1 className="font-bold text-base sm:text-lg text-slate-900 leading-tight">Ms. Dung Shiny</h1>
-            <p className="text-[11px] sm:text-xs text-amber-600 font-medium hidden sm:block">English Center Management System</p>
+            <h1 className="font-bold text-sm sm:text-lg text-slate-900 leading-tight">Ms. Dung Shiny</h1>
+            <p className="text-[10px] sm:text-xs text-amber-600 font-medium hidden sm:block">English Center Management System</p>
           </div>
         </div>
 
         {/* Header Right: Zalo Handshake, Admin Actions & Current User */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Cloud Database (Supabase PostgreSQL) Status */}
           <button
             onClick={() => triggerCloudSync()}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer active-press ${
               cloudSyncStatus === "SYNCED"
                 ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900"
                 : cloudSyncStatus === "SYNCING"
@@ -233,14 +233,14 @@ export default function HomePage() {
               }`}
             />
             <span className="hidden sm:inline">Cloud DB:</span>
-            <span>
+            <span className="text-[11px] sm:text-xs">
               {cloudSyncStatus === "SYNCED"
                 ? "Đã Kết Nối"
                 : cloudSyncStatus === "SYNCING"
                 ? "Đang Lưu..."
                 : cloudSyncStatus === "ERROR"
                 ? "Thử Lại"
-                : "Đang Chờ"}
+                : "Chờ"}
             </span>
           </button>
 
@@ -248,7 +248,7 @@ export default function HomePage() {
           {activeRole !== "PARENT" && (
             <button
               onClick={() => setIsZaloSessionOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer active-press ${
                 isZaloSessionValid(activeRole as any)
                   ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900"
                   : "border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900"
@@ -259,7 +259,7 @@ export default function HomePage() {
                 isZaloSessionValid(activeRole as any) ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
               }`} />
               <span className="hidden sm:inline">Zalo Bot:</span>
-              <span>{isZaloSessionValid(activeRole as any) ? "Đã Kết Nối" : "Chưa Kết Nối (Quét QR)"}</span>
+              <span className="text-[11px] sm:text-xs">{isZaloSessionValid(activeRole as any) ? "Zalo OK" : "Quét QR"}</span>
             </button>
           )}
 
@@ -267,7 +267,7 @@ export default function HomePage() {
           {currentUserAccount.role === "ADMIN" && (
             <button
               onClick={() => setIsZaloTemplatesOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 transition shadow-xs text-xs font-bold cursor-pointer"
+              className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-900 transition shadow-xs text-xs font-bold cursor-pointer active-press"
               title="Quản trị viên cấu hình mẫu tin nhắn tự động toàn hệ thống"
             >
               <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
@@ -279,7 +279,7 @@ export default function HomePage() {
           {currentUserAccount.role === "ADMIN" && (
             <button
               onClick={() => setIsAdminChangePasswordOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition shadow-xs text-xs font-bold"
+              className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition shadow-xs text-xs font-bold active-press cursor-pointer"
               title="Đổi mật khẩu tài khoản Quản trị viên"
             >
               <KeyRound className="w-3.5 h-3.5 text-amber-600" />
@@ -288,7 +288,7 @@ export default function HomePage() {
           )}
 
           {/* Current Active User Indicator */}
-          <div className="flex items-center gap-2 sm:gap-3 pl-2 border-l border-slate-200">
+          <div className="flex items-center gap-1.5 sm:gap-3 pl-1.5 sm:pl-2 border-l border-slate-200">
             <div className="hidden sm:flex flex-col text-right">
               <span className="text-xs font-semibold text-slate-900">{currentUser.name}</span>
               <span className="text-[10px] text-slate-500 font-mono">{currentUser.phone || currentUser.title}</span>
@@ -296,13 +296,13 @@ export default function HomePage() {
             <img 
               src={currentUser.avatarUrl} 
               alt={currentUser.name} 
-              className="w-9 h-9 rounded-full bg-slate-100 border border-amber-200 ring-2 ring-amber-100" 
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 border border-amber-200 ring-2 ring-amber-100 shrink-0" 
             />
 
             {/* Logout Button */}
             <button
               onClick={logout}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition shadow-xs text-xs font-bold"
+              className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition shadow-xs text-xs font-bold active-press cursor-pointer"
               title="Đăng xuất khỏi hệ thống"
             >
               <LogOut className="w-3.5 h-3.5 text-rose-600" />
@@ -320,7 +320,7 @@ export default function HomePage() {
       />
 
       {/* Main Content Area */}
-      <main className="max-w-7xl 2xl:max-w-[1500px] mx-auto px-3 sm:px-4 lg:px-6 py-5 space-y-5">
+      <main className="max-w-7xl 2xl:max-w-[1500px] mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5 flex-1 pb-[max(2rem,env(safe-area-inset-bottom))]">
         
         {/* Admin Dashboard Banner */}
         {currentUserAccount.role === "ADMIN" ? (
@@ -426,96 +426,123 @@ export default function HomePage() {
                 </p>
               </div>
 
-              {/* Admin Subtabs */}
-              <div className="flex items-center gap-1 bg-slate-200/80 p-1 rounded-xl overflow-x-auto max-w-full scrollbar-thin">
-                <button
-                  onClick={() => setAdminTab("TIMETABLE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "TIMETABLE" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" /> Thời khóa biểu
-                </button>
-                <button
-                  onClick={() => setAdminTab("ATTENDANCE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "ATTENDANCE" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Eye className="w-3.5 h-3.5" /> Giám sát điểm danh
-                </button>
-                <button
-                  onClick={() => setAdminTab("LOGS")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "LOGS" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <BookOpen className="w-3.5 h-3.5" /> Nhật ký giảng dạy ({classLogs.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("CLASSES")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "CLASSES" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <BookOpen className="w-3.5 h-3.5" /> Lớp học ({classes.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("STUDENTS")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "STUDENTS" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" /> Học viên ({students.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("STAFF")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "STAFF" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <GraduationCap className="w-3.5 h-3.5" /> Nhân sự ({staff.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("ROOMS")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "ROOMS" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <DoorOpen className="w-3.5 h-3.5" /> Phòng học ({classrooms.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("PAYROLL")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "PAYROLL" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Coins className="w-3.5 h-3.5" /> Bảng công & Lương
-                </button>
-                <button
-                  onClick={() => setAdminTab("TUITION")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "TUITION" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Receipt className="w-3.5 h-3.5" /> Quản lý học phí
-                </button>
-                <button
-                  onClick={() => setAdminTab("MAKEUP_CLASSES")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "MAKEUP_CLASSES" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <CalendarCheck className="w-3.5 h-3.5" /> Lớp học bù ({makeupClasses.length})
-                </button>
-                <button
-                  onClick={() => setAdminTab("COURSES")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
-                    adminTab === "COURSES" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Khóa học
-                </button>
+              {/* Admin Subtabs (Optimized for Desktop & Mobile) */}
+              <div className="w-full lg:w-auto space-y-2">
+                {/* Mobile Dropdown Quick Switcher (Android + iOS 1-Tap) */}
+                <div className="sm:hidden w-full">
+                  <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-600 pl-1 shrink-0">Chuyên mục:</span>
+                    <select
+                      value={adminTab}
+                      onChange={(e) => setAdminTab(e.target.value as any)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none"
+                    >
+                      <option value="TIMETABLE">📅 Thời khóa biểu</option>
+                      <option value="ATTENDANCE">👁️ Giám sát điểm danh</option>
+                      <option value="LOGS">📖 Nhật ký giảng dạy ({classLogs.length})</option>
+                      <option value="CLASSES">📚 Lớp học ({classes.length})</option>
+                      <option value="STUDENTS">👥 Học viên ({students.length})</option>
+                      <option value="STAFF">🎓 Nhân sự ({staff.length})</option>
+                      <option value="ROOMS">🚪 Phòng học ({classrooms.length})</option>
+                      <option value="PAYROLL">💰 Bảng công & Lương</option>
+                      <option value="TUITION">🧾 Quản lý học phí</option>
+                      <option value="MAKEUP_CLASSES">⚡ Lớp học bù ({makeupClasses.length})</option>
+                      <option value="COURSES">✨ Khóa học</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Horizontal Swipeable Tabs with touch momentum */}
+                <div className="flex items-center gap-1 bg-slate-200/80 p-1 rounded-xl overflow-x-auto max-w-full no-scrollbar mobile-tabs">
+                  <button
+                    onClick={() => setAdminTab("TIMETABLE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "TIMETABLE" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Thời khóa biểu
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("ATTENDANCE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "ATTENDANCE" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" /> Giám sát điểm danh
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("LOGS")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "LOGS" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" /> Nhật ký giảng dạy ({classLogs.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("CLASSES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "CLASSES" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" /> Lớp học ({classes.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("STUDENTS")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "STUDENTS" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" /> Học viên ({students.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("STAFF")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "STAFF" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" /> Nhân sự ({staff.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("ROOMS")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "ROOMS" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <DoorOpen className="w-3.5 h-3.5" /> Phòng học ({classrooms.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("PAYROLL")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "PAYROLL" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Coins className="w-3.5 h-3.5" /> Bảng công & Lương
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("TUITION")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "TUITION" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Receipt className="w-3.5 h-3.5" /> Quản lý học phí
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("MAKEUP_CLASSES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "MAKEUP_CLASSES" ? "bg-amber-500 text-slate-950 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <CalendarCheck className="w-3.5 h-3.5" /> Lớp học bù ({makeupClasses.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminTab("COURSES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition ${
+                      adminTab === "COURSES" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" /> Khóa học
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -546,78 +573,99 @@ export default function HomePage() {
                 </p>
               </div>
 
-              {/* Subtabs for Teacher */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start sm:self-auto overflow-x-auto max-w-full">
-                <button
-                  onClick={() => setTeacherTab("TIMETABLE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "TIMETABLE"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu
-                </button>
-                <button
-                  onClick={() => setTeacherTab("ATTENDANCE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "ATTENDANCE"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Eye className="w-3.5 h-3.5" /> Giám Sát Điểm Danh
-                </button>
-                <button
-                  onClick={() => setTeacherTab("CLASS_LOGS")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "CLASS_LOGS"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <BookOpen className="w-3.5 h-3.5" /> Nhật Ký & Giao BTVN
-                </button>
-                <button
-                  onClick={() => setTeacherTab("HOMEWORK_TRACKING")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "HOMEWORK_TRACKING"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <FileCheck className="w-3.5 h-3.5" /> Theo Dõi Nộp BTVN
-                </button>
-                <button
-                  onClick={() => setTeacherTab("MONTHLY_EXAM")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "MONTHLY_EXAM"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <FileCheck2 className="w-3.5 h-3.5" /> Bài Thi Hàng Tháng
-                </button>
-                <button
-                  onClick={() => setTeacherTab("INCIDENT_NOTES")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "INCIDENT_NOTES"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <AlertCircle className="w-3.5 h-3.5" /> Lưu Ý Riêng Cho HS
-                </button>
-                <button
-                  onClick={() => setTeacherTab("PAYROLL")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    teacherTab === "PAYROLL"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Coins className="w-3.5 h-3.5" /> Bảng Chấm Công & Lương
-                </button>
+              {/* Subtabs for Teacher (Optimized for Mobile & Desktop) */}
+              <div className="w-full sm:w-auto space-y-2">
+                <div className="sm:hidden w-full">
+                  <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-600 pl-1 shrink-0">Chức năng:</span>
+                    <select
+                      value={teacherTab}
+                      onChange={(e) => setTeacherTab(e.target.value as any)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none"
+                    >
+                      <option value="TIMETABLE">📅 Thời Khóa Biểu</option>
+                      <option value="ATTENDANCE">👁️ Giám Sát Điểm Danh</option>
+                      <option value="CLASS_LOGS">📖 Nhật Ký & Giao BTVN</option>
+                      <option value="HOMEWORK_TRACKING">📝 Theo Dõi Nộp BTVN</option>
+                      <option value="MONTHLY_EXAM">📊 Bài Thi Hàng Tháng</option>
+                      <option value="INCIDENT_NOTES">⚠️ Lưu Ý Riêng Cho HS</option>
+                      <option value="PAYROLL">💰 Bảng Chấm Công & Lương</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start sm:self-auto overflow-x-auto max-w-full no-scrollbar mobile-tabs">
+                  <button
+                    onClick={() => setTeacherTab("TIMETABLE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "TIMETABLE"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("ATTENDANCE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "ATTENDANCE"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" /> Giám Sát Điểm Danh
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("CLASS_LOGS")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "CLASS_LOGS"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" /> Nhật Ký & Giao BTVN
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("HOMEWORK_TRACKING")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "HOMEWORK_TRACKING"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <FileCheck className="w-3.5 h-3.5" /> Theo Dõi Nộp BTVN
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("MONTHLY_EXAM")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "MONTHLY_EXAM"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <FileCheck2 className="w-3.5 h-3.5" /> Bài Thi Hàng Tháng
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("INCIDENT_NOTES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "INCIDENT_NOTES"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" /> Lưu Ý Riêng Cho HS
+                  </button>
+                  <button
+                    onClick={() => setTeacherTab("PAYROLL")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      teacherTab === "PAYROLL"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Coins className="w-3.5 h-3.5" /> Bảng Chấm Công & Lương
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -643,68 +691,88 @@ export default function HomePage() {
                 </p>
               </div>
 
-              {/* Step tabs for TA */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start sm:self-auto overflow-x-auto max-w-full">
-                <button
-                  onClick={() => setAssistantTab("TIMETABLE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "TIMETABLE"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu
-                </button>
-                <button
-                  onClick={() => setAssistantTab("ATTENDANCE")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "ATTENDANCE"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" /> Điểm Danh Đầu Giờ
-                </button>
-                <button
-                  onClick={() => setAssistantTab("WORKBOOK")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "WORKBOOK"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <BookCheck className="w-3.5 h-3.5 text-indigo-700" /> Kiểm Tra Sách Workbook
-                </button>
-                <button
-                  onClick={() => setAssistantTab("HOMEWORK_GRADING")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "HOMEWORK_GRADING"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <FileCheck className="w-3.5 h-3.5 text-amber-700" /> Chấm BTVN Online
-                </button>
-                <button
-                  onClick={() => setAssistantTab("INCIDENT_NOTES")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "INCIDENT_NOTES"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-700" /> Lưu Ý Riêng Cho HS
-                </button>
-                <button
-                  onClick={() => setAssistantTab("PAYROLL")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                    assistantTab === "PAYROLL"
-                      ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Coins className="w-3.5 h-3.5 text-amber-700" /> Bảng Chấm Công &amp; Lương
-                </button>
+              {/* Step tabs for TA (Optimized for Mobile & Desktop) */}
+              <div className="w-full sm:w-auto space-y-2">
+                <div className="sm:hidden w-full">
+                  <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-600 pl-1 shrink-0">Nhiệm vụ:</span>
+                    <select
+                      value={assistantTab}
+                      onChange={(e) => setAssistantTab(e.target.value as any)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none"
+                    >
+                      <option value="TIMETABLE">📅 Thời Khóa Biểu</option>
+                      <option value="ATTENDANCE">✅ Điểm Danh Đầu Giờ</option>
+                      <option value="WORKBOOK">📖 Kiểm Tra Sách Workbook</option>
+                      <option value="HOMEWORK_GRADING">📝 Chấm BTVN Online</option>
+                      <option value="INCIDENT_NOTES">⚠️ Lưu Ý Riêng Cho HS</option>
+                      <option value="PAYROLL">💰 Bảng Chấm Công & Lương</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start sm:self-auto overflow-x-auto max-w-full no-scrollbar mobile-tabs">
+                  <button
+                    onClick={() => setAssistantTab("TIMETABLE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "TIMETABLE"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Thời Khóa Biểu
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("ATTENDANCE")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "ATTENDANCE"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" /> Điểm Danh Đầu Giờ
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("WORKBOOK")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "WORKBOOK"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <BookCheck className="w-3.5 h-3.5 text-indigo-700" /> Kiểm Tra Sách Workbook
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("HOMEWORK_GRADING")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "HOMEWORK_GRADING"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <FileCheck className="w-3.5 h-3.5 text-amber-700" /> Chấm BTVN Online
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("INCIDENT_NOTES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "INCIDENT_NOTES"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-700" /> Lưu Ý Riêng Cho HS
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("PAYROLL")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "PAYROLL"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Coins className="w-3.5 h-3.5 text-amber-700" /> Bảng Chấm Công &amp; Lương
+                  </button>
+                </div>
               </div>
             </div>
 
