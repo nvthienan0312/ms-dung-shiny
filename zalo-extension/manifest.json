@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Ms. Dung Shiny Zalo Bridge",
+  "version": "1.1.0",
+  "description": "Tiện ích cầu nối tự động gửi tin nhắn học phí, nhận xét và BTVN từ hệ thống Ms. Dung Shiny vào Zalo Web (chat.zalo.me) 100% tự động không cần Ctrl+V.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://chat.zalo.me/*",
+    "https://zalo.me/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ms. Dung Shiny Zalo Bridge"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.zalo.me/*"
+      ],
+      "js": [
+        "content-script-zalo.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "content-script-app.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

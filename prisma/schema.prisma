@@ -1,0 +1,330 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  ASSISTANT
+  PARENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum CourseLevel {
+  KIDS
+  PRIMARY
+  SECONDARY
+  IELTS
+  COMMUNICATION
+}
+
+enum ClassStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  SUSPENDED
+  DROPPED
+  COMPLETED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT_EXCUSED
+  ABSENT_UNEXCUSED
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  TA_REVIEWED
+  TEACHER_GRADED
+}
+
+enum AbsenceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model User {
+  id            String      @id @default(uuid())
+  email         String      @unique
+  phone         String?     @unique
+  passwordHash  String
+  fullName      String
+  role          Role        @default(PARENT)
+  status        UserStatus  @default(ACTIVE)
+  avatarUrl     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Teacher relationships
+  classesAsTeacher   Class[]    @relation("TeacherClasses")
+  // Assistant relationships
+  classesAsAssistant Class[]    @relation("AssistantClasses")
+  // Parent relationships
+  children           Student[]  @relation("ParentChildren")
+
+  // Logs marked by user
+  markedAttendances  Attendance[] @relation("MarkedBy")
+}
+
+model Branch {
+  id          String      @id @default(uuid())
+  name        String
+  address     String
+  phone       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  classrooms  Classroom[]
+  classes     Class[]
+}
+
+model Classroom {
+  id          String      @id @default(uuid())
+  name        String
+  capacity    Int         @default(15)
+  branchId    String
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  classes     Class[]
+}
+
+model Course {
+  id              String       @id @default(uuid())
+  code            String       @unique
+  name            String
+  level           CourseLevel  @default(KIDS)
+  description     String?
+  totalLessons    Int          @default(24)
+  standardTuition Decimal      @db.Decimal(12, 2)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  classes         Class[]
+}
+
+model Class {
+  id            String       @id @default(uuid())
+  code          String       @unique
+  name          String
+  courseId      String
+  course        Course       @relation(fields: [courseId], references: [id])
+  branchId      String
+  branch        Branch       @relation(fields: [branchId], references: [id])
+  classroomId   String?
+  classroom     Classroom?   @relation(fields: [classroomId], references: [id])
+  
+  teacherId     String?
+  teacher       User?        @relation("TeacherClasses", fields: [teacherId], references: [id])
+  assistantId   String?
+  assistant     User?        @relation("AssistantClasses", fields: [assistantId], references: [id])
+
+  startDate     DateTime
+  endDate       DateTime?
+  status        ClassStatus  @default(UPCOMING)
+  tuitionFee    Decimal      @db.Decimal(12, 2)
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  schedules     ClassSchedule[]
+  enrollments   Enrollment[]
+  sessions      ClassSession[]
+  invoices      Invoice[]
+}
+
+model ClassSchedule {
+  id          String    @id @default(uuid())
+  classId     String
+  class       Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  dayOfWeek   Int       // 0: Chủ Nhật, 1: Thứ 2, ..., 6: Thứ 7
+  startTime   String    // "17:30"
+  endTime     String    // "19:00"
+}
+
+model Student {
+  id                String            @id @default(uuid())
+  studentCode       String            @unique
+  fullName          String
+  dob               DateTime?
+  gender            String?
+  parentId          String
+  parent            User              @relation("ParentChildren", fields: [parentId], references: [id])
+  emergencyPhone    String?
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  enrollments       Enrollment[]
+  attendances       Attendance[]
+  submissions       HomeworkSubmission[]
+  absenceRequests   AbsenceRequest[]
+  invoices          Invoice[]
+}
+
+model Enrollment {
+  id                String            @id @default(uuid())
+  studentId         String
+  student           Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId           String
+  class             Class             @relation(fields: [classId], references: [id], onDelete: Cascade)
+  enrolledAt        DateTime          @default(now())
+  status            EnrollmentStatus  @default(ACTIVE)
+  remainingLessons  Int               @default(24)
+
+  @@unique([studentId, classId])
+}
+
+model ClassSession {
+  id              String            @id @default(uuid())
+  classId         String
+  class           Class             @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sessionNumber   Int
+  sessionDate     DateTime
+  startTime       String?
+  endTime         String?
+  status          SessionStatus     @default(SCHEDULED)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  attendances     Attendance[]
+  classLog        ClassLog?
+  homework        Homework?
+  absentRequests  AbsenceRequest[]  @relation("AbsentSession")
+  makeUpRequests  AbsenceRequest[]  @relation("MakeUpSession")
+}
+
+model Attendance {
+  id            String            @id @default(uuid())
+  sessionId     String
+  session       ClassSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status        AttendanceStatus  @default(PRESENT)
+  checkInTime   DateTime?
+  note          String?
+  markedById    String?
+  markedBy      User?             @relation("MarkedBy", fields: [markedById], references: [id])
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([sessionId, studentId])
+}
+
+model ClassLog {
+  id                  String        @id @default(uuid())
+  sessionId           String        @unique
+  session             ClassSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  lessonTopic         String
+  grammarVocabSummary String?       @db.Text
+  teacherRemarks      String?       @db.Text
+  assistantRemarks    String?       @db.Text
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model Homework {
+  id              String               @id @default(uuid())
+  sessionId       String               @unique
+  session         ClassSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?              @db.Text
+  attachmentUrl   String?
+  dueDate         DateTime
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  submissions     HomeworkSubmission[]
+}
+
+model HomeworkSubmission {
+  id              String            @id @default(uuid())
+  homeworkId      String
+  homework        Homework          @relation(fields: [homeworkId], references: [id], onDelete: Cascade)
+  studentId       String
+  student         Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  submissionText  String?           @db.Text
+  attachmentUrl   String?
+  audioRecordUrl  String?
+  submittedAt     DateTime          @default(now())
+  status          SubmissionStatus  @default(SUBMITTED)
+  
+  // TA review
+  taReviewNotes   String?           @db.Text
+  taReviewedAt    DateTime?
+
+  // Teacher official evaluation
+  teacherFeedback String?           @db.Text
+  score           Decimal?          @db.Decimal(4, 2)
+  teacherGradedAt DateTime?
+
+  @@unique([homeworkId, studentId])
+}
+
+model AbsenceRequest {
+  id                String          @id @default(uuid())
+  studentId         String
+  student           Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sessionId         String
+  session           ClassSession    @relation("AbsentSession", fields: [sessionId], references: [id], onDelete: Cascade)
+  reason            String
+  status            AbsenceStatus   @default(PENDING)
+  makeUpSessionId   String?
+  makeUpSession     ClassSession?   @relation("MakeUpSession", fields: [makeUpSessionId], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model Invoice {
+  id              String          @id @default(uuid())
+  invoiceCode     String          @unique
+  studentId       String
+  student         Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId         String
+  class           Class           @relation(fields: [classId], references: [id])
+  amount          Decimal         @db.Decimal(12, 2)
+  dueDate         DateTime
+  status          InvoiceStatus   @default(UNPAID)
+  paymentMethod   String?         // VietQR, Transfer, Cash
+  paidAt          DateTime?
+  vietqrPayload   String?         // Dữ liệu tạo mã VietQR
+  note            String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model CenterDataStore {
+  key       String   @id
+  data      Json
+  updatedAt DateTime @updatedAt
+}
