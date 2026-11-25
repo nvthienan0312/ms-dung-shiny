@@ -64,21 +64,20 @@ Thầy/cô cảm ơn Ba Mẹ rất nhiều!`,
   {
     id: "tpl_hw_grading_result",
     type: "HOMEWORK",
-    title: "Thông Báo Kết Quả Chấm BTVN (Điểm & Sửa Lỗi)",
-    description: "Báo cáo điểm số, phát âm video và bài tập Workbook do Trợ giảng chấm.",
-    contentPattern: `[MS. DUNG SHINY] KẾT QUẢ CHẤM BTVN CỦA CON 🌟
+    title: "Thông Báo Kết Quả Kiểm Tra BTVN (Nhận Xét & Sửa Lỗi)",
+    description: "Báo cáo nhận xét phát âm video và bài tập Workbook do Trợ giảng kiểm tra.",
+    contentPattern: `[MS. DUNG SHINY] KẾT QUẢ KIỂM TRA BTVN CỦA CON 🌟
 
 Chào Ba Mẹ bé {studentName} (Lớp: {className}) ạ!
 Em là {assistantName} - Trợ giảng lớp của con.
-Em vừa hoàn thành việc chấm bài tập về nhà của con:
+Em vừa hoàn thành việc kiểm tra và nhận xét bài tập về nhà của con:
 
 📖 Bài tập: {assignmentTitle}
-🎯 Điểm số: {score}/10 Điểm
 ✍️ Nhận xét & Sửa lỗi chi tiết:
 {taFeedback}
 
-Ba Mẹ mở ứng dụng Sổ liên lạc để nghe lại phần sửa âm của em nhé ạ. Em cảm ơn Ba Mẹ nhiều!`,
-    availableVariables: ["studentName", "className", "assistantName", "assignmentTitle", "score", "taFeedback"],
+Ba Mẹ mở ứng dụng Sổ liên lạc để xem chi tiết nhận xét của em nhé ạ. Em cảm ơn Ba Mẹ nhiều!`,
+    availableVariables: ["studentName", "className", "assistantName", "assignmentTitle", "taFeedback"],
     isDefault: true,
     authorRole: "ASSISTANT",
     createdAt: "2026-11-01T08:00:00Z",

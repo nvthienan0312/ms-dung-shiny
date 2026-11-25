@@ -286,23 +286,33 @@ export default function TuitionManager() {
     setEditingBill(null);
   };
 
-  // Khôi phục tự động tính theo lịch của lớp
+  // Khôi phục tự động tính theo lịch của lớp (giữ giảm trừ cố định nếu có)
   const handleRecalculateSingle = () => {
     if (!editingBill) return;
     const targetClass = classes.find((c) => c.id === editingBill.classId);
     if (!targetClass) return;
 
+    const studentObj = students.find((s) => s.id === editingBill.studentId);
     const { lessonCount } = calculateMonthLessons(selectedMonth, targetClass.schedules);
     const actualLessons = lessonCount > 0 ? lessonCount : 8;
-    const fee = targetClass.feePerLesson || (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
+    const fee =
+      studentObj?.feePerLesson ||
+      targetClass.feePerLesson ||
+      (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
+    const fixedDisc = Math.max(0, studentObj?.fixedDiscount || 0);
+    const fixedDiscNote =
+      studentObj?.fixedDiscountNote?.trim() ||
+      (fixedDisc > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
 
     setEditLessons(actualLessons);
     setEditFeePerLesson(fee);
     setEditSurcharge(0);
     setEditSurchargeNote("");
-    setEditDiscount(0);
-    setEditDiscountNote("");
-    showToast(`🔄 Đã khôi phục số buổi theo lịch chuẩn (${actualLessons} buổi × ${formatVND(fee)})!`);
+    setEditDiscount(fixedDisc);
+    setEditDiscountNote(fixedDiscNote);
+    showToast(
+      `🔄 Đã khôi phục số buổi theo lịch chuẩn (${actualLessons} buổi × ${formatVND(fee)}${fixedDisc > 0 ? ` - ${formatVND(fixedDisc)} giảm cố định` : ""})!`
+    );
   };
 
   // Mở modal thu tiền

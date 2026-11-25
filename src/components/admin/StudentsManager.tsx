@@ -83,9 +83,11 @@ export default function StudentsManager() {
     gender: "Nam" as "Nam" | "Nữ",
     parentName: "",
     parentPhone: "",
-    parentEmail: "",
+    note: "",
     classId: classes[0]?.id || "",
     feePerLesson: classes[0]?.feePerLesson || (classes[0]?.monthlyFee ? Math.round(classes[0].monthlyFee / 8) : 200000),
+    fixedDiscount: 0,
+    fixedDiscountNote: "",
     tuitionStatus: "PAID" as "PAID" | "UNPAID" | "OVERDUE",
     currentBillingMonth: "Tháng 11/2026",
     tuitionDueDate: "10/11/2026",
@@ -99,7 +101,8 @@ export default function StudentsManager() {
       stu.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stu.studentCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stu.parentPhone.includes(searchQuery) ||
-      stu.parentName.toLowerCase().includes(searchQuery.toLowerCase());
+      stu.parentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (stu.note || "").toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesClass =
       selectedClassFilter === "ALL" ||
@@ -135,9 +138,11 @@ export default function StudentsManager() {
       gender: "Nam",
       parentName: "",
       parentPhone: "",
-      parentEmail: "",
+      note: "",
       classId: defaultClass?.id || "",
       feePerLesson: defaultClass?.feePerLesson || (defaultClass?.monthlyFee ? Math.round(defaultClass.monthlyFee / 8) : 200000),
+      fixedDiscount: 0,
+      fixedDiscountNote: "",
       tuitionStatus: "PAID",
       currentBillingMonth: "Tháng 11/2026",
       tuitionDueDate: "10/11/2026",
@@ -158,9 +163,11 @@ export default function StudentsManager() {
       gender: stu.gender,
       parentName: stu.parentName,
       parentPhone: stu.parentPhone,
-      parentEmail: stu.parentEmail || "",
+      note: stu.note || "",
       classId: stu.classId || "",
       feePerLesson: resolvedFeePerLesson,
+      fixedDiscount: stu.fixedDiscount || 0,
+      fixedDiscountNote: stu.fixedDiscountNote || "",
       tuitionStatus: stu.tuitionStatus || "PAID",
       currentBillingMonth: stu.currentBillingMonth || "Tháng 11/2026",
       tuitionDueDate: stu.tuitionDueDate || "10/11/2026",
@@ -174,6 +181,9 @@ export default function StudentsManager() {
 
     const selectedCls = classes.find((c) => c.id === formData.classId);
     const feePerLesson = Math.max(0, Number(formData.feePerLesson) || 0);
+    const fixedDiscount = Math.max(0, Number(formData.fixedDiscount) || 0);
+    const noteTrimmed = formData.note.trim();
+    const fixedDiscountNoteTrimmed = formData.fixedDiscountNote.trim();
 
     if (editingStudentId) {
       updateStudent(editingStudentId, {
@@ -182,11 +192,13 @@ export default function StudentsManager() {
         gender: formData.gender,
         parentName: formData.parentName,
         parentPhone: formData.parentPhone,
-        parentEmail: formData.parentEmail,
+        note: noteTrimmed || undefined,
         classId: formData.classId || undefined,
         className: selectedCls ? selectedCls.name : undefined,
         feePerLesson,
         monthlyFee: feePerLesson * 8,
+        fixedDiscount,
+        fixedDiscountNote: fixedDiscountNoteTrimmed || (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : undefined),
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -200,11 +212,13 @@ export default function StudentsManager() {
         gender: formData.gender,
         parentName: formData.parentName,
         parentPhone: formData.parentPhone,
-        parentEmail: formData.parentEmail,
+        note: noteTrimmed || undefined,
         classId: formData.classId || undefined,
         className: selectedCls ? selectedCls.name : undefined,
         feePerLesson,
         monthlyFee: feePerLesson * 8,
+        fixedDiscount,
+        fixedDiscountNote: fixedDiscountNoteTrimmed || (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : undefined),
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -432,6 +446,11 @@ Trân trọng cảm ơn Ba Mẹ!`;
                       {stu.studentCode}
                     </span>
                     <div className="font-bold text-slate-900 mt-1">{stu.fullName}</div>
+                    {stu.note && (
+                      <div className="text-[10.5px] text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 inline-block">
+                        📝 {stu.note}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     <div>{stu.dob}</div>
@@ -535,6 +554,11 @@ Trân trọng cảm ơn Ba Mẹ!`;
                         <div className="text-[10.5px] text-slate-500 font-mono">
                           {(stu.feePerLesson || (stu.monthlyFee ? Math.round(stu.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
                         </div>
+                        {(stu.fixedDiscount || 0) > 0 && (
+                          <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded inline-block" title={stu.fixedDiscountNote || "Giảm trừ học phí cố định hàng tháng"}>
+                            Giảm cố định: -{(stu.fixedDiscount || 0).toLocaleString("vi-VN")} đ/tháng
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-slate-400">—</span>
@@ -780,12 +804,12 @@ Trân trọng cảm ơn Ba Mẹ!`;
                   </div>
                 </div>
                 <div className="mt-2">
-                  <label className="font-semibold text-slate-700 block mb-1">Email phụ huynh</label>
+                  <label className="font-semibold text-slate-700 block mb-1">Ghi chú (Không bắt buộc)</label>
                   <input
-                    type="email"
-                    placeholder="VD: mailan@gmail.com"
-                    value={formData.parentEmail}
-                    onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
+                    type="text"
+                    placeholder="VD: em trai Tuấn Vũ K2, lưu ý đặc biệt..."
+                    value={formData.note}
+                    onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   />
                 </div>
@@ -838,6 +862,45 @@ Trân trọng cảm ơn Ba Mẹ!`;
                     <option value="OVERDUE">Quá hạn</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Giảm trừ học phí cố định hàng tháng */}
+              <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-emerald-950 text-xs">
+                    Giảm trừ học phí cố định hàng tháng (Không bắt buộc)
+                  </label>
+                  <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                    Tự động trừ vào học phí tháng
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Số tiền giảm cố định (VNĐ/tháng)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      placeholder="VD: 200000"
+                      value={formData.fixedDiscount || ""}
+                      onChange={(e) => setFormData({ ...formData, fixedDiscount: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono font-bold text-emerald-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Lý do giảm trừ (Không bắt buộc)</label>
+                    <input
+                      type="text"
+                      placeholder="VD: Anh chị em học cùng, Học bổng..."
+                      value={formData.fixedDiscountNote}
+                      onChange={(e) => setFormData({ ...formData, fixedDiscountNote: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-emerald-800">
+                  Học phí tháng tự động tính = (Số buổi trong tháng × Học phí/buổi) − Giảm trừ cố định.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

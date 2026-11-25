@@ -460,23 +460,23 @@ Ba Mẹ đồng hành và nhắc con hoàn thành bài tập nhé ạ. Em cảm 
 }
 
 /**
- * 6. Trợ giảng gửi Kết quả chấm BTVN Online
+ * 6. Trợ giảng gửi Kết quả kiểm tra BTVN Online (không chấm điểm, chỉ nhận xét chi tiết)
  */
 export function generateHomeworkGradingZaloMessage(
   studentName: string,
   parentName: string,
   assistantName: string,
   assignmentTitle: string,
-  score: number,
+  score: number | undefined,
   taFeedback: string
 ): string {
-  const salutation = parentName ? `Chào Ba Mẹ bé ${studentName} ạ!` : `Chào Ba Mẹ bé ${studentName} ạ!`;
+  const salutation = `Chào Ba Mẹ bé ${studentName} ạ!`;
+  const scoreLine = typeof score === "number" ? `\n🎯 Điểm số: ${score}/10 Điểm` : "";
   return `${salutation}
 Em là ${assistantName} (Trợ giảng lớp của con). 
-Em vừa hoàn thành việc chấm bài tập về nhà của bé ${studentName}:
+Em vừa hoàn thành việc kiểm tra và nhận xét bài tập về nhà của bé ${studentName}:
 
-📖 Bài tập: ${assignmentTitle}
-🎯 Điểm số: ${score}/10 Điểm
+📖 Bài tập: ${assignmentTitle}${scoreLine}
 ✍️ Nhận xét & Sửa lỗi chi tiết:
 ${taFeedback || "Con hoàn thành bài tập đầy đủ, phát âm rõ ràng và tiến bộ từng ngày!"}
 
@@ -578,8 +578,10 @@ export function generateAttendanceAbsentZaloMessage(params: {
   dateStr: string;
   assistantName?: string;
   centerHotline?: string;
+  reason?: string;
 }): string {
   const hotline = params.centerHotline || "0964.645.174";
+  const reasonLine = params.reason ? `\n• Lý do / Tình trạng: ${params.reason}` : "";
   return `📢 THÔNG BÁO TÌNH HÌNH ĐIỂM DANH - MS. DUNG SHINY
 
 Kính gửi Phụ huynh bé ${params.studentName},
@@ -589,7 +591,7 @@ Hôm nay (ngày ${params.dateStr}), lớp ${params.className} đã bắt đầu 
 📌 Ghi chú từ Trung tâm & Trợ giảng:
 • Buổi học: ${params.dateStr} - Lớp: ${params.className}
 • Trạng thái điểm danh: VẮNG MẶT
-• Trợ giảng phụ trách: ${params.assistantName || "Trợ giảng lớp"}
+• Trợ giảng phụ trách: ${params.assistantName || "Trợ giảng lớp"}${reasonLine}
 
 💡 Quý Phụ huynh yên tâm: Học phí của con được bảo lưu bài giảng đầy đủ. Trung tâm sẽ cập nhật quyền lợi học bù trong tháng và liên hệ Phụ huynh để xếp lịch bù kiến thức cho con sớm nhất.
 

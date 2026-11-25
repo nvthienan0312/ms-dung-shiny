@@ -60,10 +60,17 @@ Trung tâm có tổ chức học bù trong tháng để con củng cố kiến t
 Để trung tâm sắp xếp lịch học bù phù hợp nhất cho con, kính nhờ Quý Phụ huynh phản hồi lại các khung giờ con có thể tham gia:
 1. Các buổi tối trong tuần: Khung 17:30 - 19:00 hoặc 19:00 - 20:30
 2. Cuối tuần: Khung Sáng / Chiều Thứ Bảy hoặc Chủ Nhật
-Quý Phụ huynh vui lòng nhắn lại tin nhắn này hoặc liên hệ Hotline: 0912 345 678 để trung tâm lên lịch bù cho bé.
+Quý Phụ huynh vui lòng nhắn lại tin nhắn này hoặc liên hệ Hotline: 0964.645.174 để trung tâm lên lịch bù cho bé.
 Trân trọng cảm ơn Quý Phụ huynh!`;
 
-export default function MakeupClassesManager() {
+export interface MakeupClassesManagerProps {
+  userRole?: "ADMIN" | "ASSISTANT";
+}
+
+export default function MakeupClassesManager({
+  userRole = "ADMIN",
+}: MakeupClassesManagerProps) {
+  const isAdmin = userRole === "ADMIN";
   const {
     classes,
     students,
@@ -164,8 +171,8 @@ export default function MakeupClassesManager() {
   const [formDateStr, setFormDateStr] = useState<string>(() => getTodayDateString());
   const [formStartTime, setFormStartTime] = useState<string>("09:00");
   const [formEndTime, setFormEndTime] = useState<string>("10:30");
-  const [formClassroomId, setFormClassroomId] = useState<string>("room-2");
-  const [formStaffId, setFormStaffId] = useState<string>("staff-ta1");
+  const [formClassroomId, setFormClassroomId] = useState<string>("");
+  const [formStaffId, setFormStaffId] = useState<string>("");
   const [formFocusContent, setFormFocusContent] = useState<string>("");
   const [formNotes, setFormNotes] = useState<string>("");
 
@@ -178,8 +185,8 @@ export default function MakeupClassesManager() {
     setFormDateStr(getTodayDateString());
     setFormStartTime("09:00");
     setFormEndTime("10:30");
-    setFormClassroomId(classrooms[0]?.id || "room-1");
-    setFormStaffId(staff[0]?.id || "staff-ta1");
+    setFormClassroomId(classrooms[0]?.id || "");
+    setFormStaffId(staff[0]?.id || "");
     setFormFocusContent("Học bù củng cố từ vựng & cấu trúc ngữ pháp, chữa bài tập Workbook và rèn phản xạ giao tiếp.");
     setFormNotes("Buổi học bù trong tháng dành cho học sinh nghỉ có phép.");
     setIsCreateModalOpen(true);
@@ -621,22 +628,26 @@ export default function MakeupClassesManager() {
               <span>Khảo Sát Lịch Rảnh PH ({summary.unscheduledSessions})</span>
             </button>
 
-            <button
-              onClick={handleOpenCreateModal}
-              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tạo Lớp Học Bù</span>
-            </button>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={handleOpenCreateModal}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tạo Lớp Học Bù</span>
+                </button>
 
-            <button
-              onClick={() => setIsResetConfirmModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5"
-              title="Khi hết tháng, chốt quyền lợi và reset số buổi học bù của các học sinh chưa tham gia"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>Kết Thúc Tháng & Reset</span>
-            </button>
+                <button
+                  onClick={() => setIsResetConfirmModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5"
+                  title="Khi hết tháng, chốt quyền lợi và reset số buổi học bù của các học sinh chưa tham gia"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Kết Thúc Tháng & Reset</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -807,27 +818,29 @@ export default function MakeupClassesManager() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => handleOpenEditModal(mc)}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                            title="Chỉnh sửa thông tin lớp bù"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Bạn có chắc muốn xóa lớp học bù "${mc.title}"?`)) {
-                                deleteMakeupClass(mc.id);
-                                showToast(`✓ Đã xóa lớp học bù "${mc.title}"!`);
-                              }
-                            }}
-                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 transition"
-                            title="Xóa lớp học bù"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {isAdmin && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleOpenEditModal(mc)}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                              title="Chỉnh sửa thông tin lớp bù"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Bạn có chắc muốn xóa lớp học bù "${mc.title}"?`)) {
+                                  deleteMakeupClass(mc.id);
+                                  showToast(`✓ Đã xóa lớp học bù "${mc.title}"!`);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 transition"
+                              title="Xóa lớp học bù"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Class Details */}

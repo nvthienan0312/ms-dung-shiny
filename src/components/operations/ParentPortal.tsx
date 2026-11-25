@@ -3,9 +3,9 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useCenter } from "@/context/CenterContext";
 import { 
-  LeaveReasonCategory,
   AssignmentItem
 } from "@/data/centerData";
+import { saveMediaBlob, fileToSmallDataUrl } from "@/utils/mediaStorage";
 import { getStudentDebtSummary, formatVND } from "@/utils/tuitionHelper";
 import { getTodayDateString } from "@/utils/dateHelper";
 import { 
@@ -65,13 +65,11 @@ export default function ParentPortal() {
     incidentNotes, 
     monthlyExamReports,
     homeworkSubmissions,
-    leaveRequests,
     tuitionPayments,
     studentTuitionBills,
     assignments,
     makeupClasses,
     submitHomework,
-    submitLeaveRequest,
     addTuitionPayment,
     markTuitionBillPaid,
     markMultiMonthTuitionPaid,
@@ -116,12 +114,6 @@ export default function ParentPortal() {
   const [teamsHwTab, setTeamsHwTab] = useState<"ASSIGNED" | "COMPLETED">("ASSIGNED");
   const [selectedAssignmentForSubmission, setSelectedAssignmentForSubmission] = useState<AssignmentItem | null>(null);
 
-  // Leave Request Modal State
-  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  const [leaveDate, setLeaveDate] = useState(() => getTodayDateString());
-  const [leaveCategory, setLeaveCategory] = useState<LeaveReasonCategory>("SICK");
-  const [leaveDetail, setLeaveDetail] = useState("");
-
   // Homework Submission Modal State
   const [isHomeworkModalOpen, setIsHomeworkModalOpen] = useState(false);
   const [homeworkType, setHomeworkType] = useState<"VIDEO" | "AUDIO" | "WORKBOOK" | "BOTH">("BOTH");
@@ -134,12 +126,14 @@ export default function ParentPortal() {
     name: string;
     size: string;
     type: string;
+    file?: File;
   } | null>(null);
 
   const [attachedWorkbookFile, setAttachedWorkbookFile] = useState<{
     name: string;
     size: string;
     type: string;
+    file?: File;
   } | null>(null);
 
   const mainFileInputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +152,7 @@ export default function ParentPortal() {
         name: file.name,
         size: formatFileSize(file.size),
         type: file.type,
+        file,
       });
       if (!submissionTitle) {
         setSubmissionTitle(file.name);
@@ -172,6 +167,7 @@ export default function ParentPortal() {
         name: file.name,
         size: formatFileSize(file.size),
         type: file.type,
+        file,
       });
       setWorkbookFileName(file.name);
     }
@@ -308,12 +304,6 @@ export default function ParentPortal() {
     return (monthlyExamReports || []).filter((r) => r.studentId === activeStudent.id);
   }, [monthlyExamReports, activeStudent]);
 
-  // Leave Requests for this student
-  const studentLeaveRequests = useMemo(() => {
-    if (!activeStudent) return [];
-    return (leaveRequests || []).filter((l) => l.studentId === activeStudent.id);
-  }, [leaveRequests, activeStudent]);
-
   // Tuition Payments for this student
   const studentPayments = useMemo(() => {
     if (!activeStudent) return [];
@@ -337,28 +327,8 @@ export default function ParentPortal() {
 
   // --- ACTIONS ---
 
-  // Submit Leave Request Handler
-  const handleSendLeaveRequest = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeStudent || !activeClass) return;
-
-    submitLeaveRequest({
-      studentId: activeStudent.id,
-      studentName: activeStudent.fullName,
-      classId: activeClass.id,
-      className: activeClass.name,
-      dateStr: leaveDate,
-      reasonCategory: leaveCategory,
-      reasonDetail: leaveDetail || "Gia đình có việc bận đột xuất xin phép cho con nghỉ buổi học này và bảo lưu.",
-    });
-
-    setIsLeaveModalOpen(false);
-    setLeaveDetail("");
-    showToast(`Đã gửi đơn xin nghỉ phép ngày ${leaveDate} cho bé ${activeStudent.fullName}. Buổi học được bảo lưu đầy đủ!`);
-  };
-
   // Submit Homework Handler (MS Teams Style - gắn chặt với buổi học & assignment)
-  const handleSendHomework = (e: React.FormEvent) => {
+  const handleSendHomework = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeStudent || !activeClass) return;
 
@@ -377,6 +347,40 @@ export default function ParentPortal() {
     const assignmentTitleToSave = selectedAssignmentForSubmission?.title || currentClassLog?.homeworkTitle || "Unit 4: Video thuyết trình và Sách bài tập";
     const sessionTitleToSave = selectedAssignmentForSubmission?.sessionTitle || `Buổi học lớp ${activeClass.name}`;
 
+    let mediaStorageKey: string | undefined;
+    let mediaUrl: string | undefined;
+    let mediaMimeType: string | undefined;
+    let workbookStorageKey: string | undefined;
+    let workbookImageUrl: string | undefined;
+    let workbookMimeType: string | undefined;
+
+    if (attachedFile?.file) {
+      mediaStorageKey = `hw_media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      mediaMimeType = attachedFile.type || attachedFile.file.type;
+      try {
+        await saveMediaBlob(mediaStorageKey, attachedFile.file);
+        mediaUrl = await fileToSmallDataUrl(attachedFile.file);
+      } catch (err) {
+        console.warn("Không thể lưu tệp media vào IndexedDB:", err);
+      }
+      if (homeworkType === "WORKBOOK") {
+        workbookStorageKey = mediaStorageKey;
+        workbookMimeType = mediaMimeType;
+        workbookImageUrl = mediaUrl;
+      }
+    }
+
+    if (attachedWorkbookFile?.file) {
+      workbookStorageKey = `hw_wb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      workbookMimeType = attachedWorkbookFile.type || attachedWorkbookFile.file.type;
+      try {
+        await saveMediaBlob(workbookStorageKey, attachedWorkbookFile.file);
+        workbookImageUrl = await fileToSmallDataUrl(attachedWorkbookFile.file);
+      } catch (err) {
+        console.warn("Không thể lưu tệp workbook vào IndexedDB:", err);
+      }
+    }
+
     submitHomework({
       studentId: activeStudent.id,
       studentName: activeStudent.fullName,
@@ -387,14 +391,20 @@ export default function ParentPortal() {
       assignmentTitle: assignmentTitleToSave,
       submissionType: homeworkType,
       mediaTitle: autoMediaTitle,
+      mediaUrl,
+      mediaStorageKey,
+      mediaMimeType,
       mediaDuration: (homeworkType === "VIDEO" || isBoth) ? "1m 30s" : homeworkType === "AUDIO" ? "45s" : undefined,
       attachmentFileName: attachedFile?.name,
       attachmentFileSize: attachedFile?.size,
+      attachmentFileUrl: mediaUrl,
       workbookImageFileName: isBoth 
         ? (attachedWorkbookFile?.name || workbookFileName || `Workbook_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Trang34-35.jpg`)
         : homeworkType === "WORKBOOK" ? (attachedFile?.name || autoMediaTitle) : undefined,
       workbookFileSize: isBoth ? attachedWorkbookFile?.size : (homeworkType === "WORKBOOK" ? attachedFile?.size : undefined),
-      workbookImageUrl: isBoth ? "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600" : undefined,
+      workbookImageUrl,
+      workbookStorageKey,
+      workbookMimeType,
       commentFromStudent: studentComment || "Con đã hoàn thành bài tập nộp cô giáo và thầy trợ giảng ạ!",
     });
 
@@ -405,7 +415,7 @@ export default function ParentPortal() {
     setStudentComment("");
     setAttachedFile(null);
     setAttachedWorkbookFile(null);
-    showToast(`Nộp bài tập "${assignmentTitleToSave}" thành công cho bé ${activeStudent.fullName}! Thầy Trợ Giảng sẽ chấm điểm và phản hồi sớm.`);
+    showToast(`Nộp bài tập "${assignmentTitleToSave}" thành công cho bé ${activeStudent.fullName}! Thầy Trợ Giảng sẽ kiểm tra và nhận xét sớm.`);
   };
 
   const handleOpenSubmitModal = (assign: AssignmentItem) => {
@@ -627,7 +637,7 @@ export default function ParentPortal() {
               <option value="TIMETABLE">📅 Thời Khóa Biểu Của Bé</option>
               <option value="HOMEWORK">📝 Bài Tập Về Nhà ({studentSubmissions.length})</option>
               <option value="EXAM_REPORTS">📊 Báo Cáo & Bài Thi ({studentExamReports.length})</option>
-              <option value="TUITION_LEAVE">💰 Học Phí & Nghỉ Phép</option>
+              <option value="TUITION_LEAVE">💰 Học Phí</option>
             </select>
           </div>
         </div>
@@ -686,7 +696,7 @@ export default function ParentPortal() {
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <Coins className="w-3.5 h-3.5" /> Học Phí & Nghỉ Phép
+            <Coins className="w-3.5 h-3.5" /> Học Phí
           </button>
         </div>
       </div>
@@ -721,17 +731,17 @@ export default function ParentPortal() {
 
                   return (
                     <div key={mc.id} className="p-3 bg-white/10 backdrop-blur rounded-xl border border-white/10 space-y-1.5 text-xs">
-                      <div className="font-bold text-amber-300 text-sm">{mc.title}</div>
+                      <div className="font-bold text-amber-300 text-sm">Lịch Học Bù</div>
                       <div className="flex items-center gap-2 text-indigo-100">
                         <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                         <span>Thời gian: <strong>{mc.startTime} - {mc.endTime}</strong>, ngày <strong>{formattedDate}</strong></span>
                       </div>
                       <div className="flex items-center gap-2 text-indigo-100">
                         <DoorOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span>Phòng: <strong>{mc.classroomName}</strong> • Phụ trách: <strong>{mc.teacherOrAssistantName}</strong></span>
+                        <span>Phòng học: <strong>{mc.classroomName}</strong></span>
                       </div>
                       {myEntry?.absentDateStr && (
-                        <div className="text-[11px] text-slate-300 flex items-center justify-between">
+                        <div className="text-[11px] text-slate-300 flex items-center justify-between pt-0.5">
                           <span>Bù cho buổi vắng ngày: <strong className="text-rose-300">{myEntry.absentDateStr}</strong></span>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             myEntry.attendanceStatus === "ATTENDED"
@@ -742,38 +752,6 @@ export default function ParentPortal() {
                           }`}>
                             {myEntry.attendanceStatus === "ATTENDED" ? "✓ Đã Tham Gia" : myEntry.attendanceStatus === "ABSENT" ? "Vắng (Bảo Lưu Bù)" : "Đã Đăng Ký"}
                           </span>
-                        </div>
-                      )}
-                      <div className="p-2 bg-black/20 rounded-lg text-[10.5px] text-slate-200">
-                        <strong>Trọng tâm ôn tập:</strong> {mc.focusContent}
-                      </div>
-
-                      {/* Báo cáo kết quả buổi học bù từ Trợ giảng / GV gửi cho PH */}
-                      {mc.contentSentToParentsAt && (
-                        <div className="p-2.5 bg-indigo-950/80 rounded-xl border border-indigo-400/40 space-y-1 text-[11px] text-indigo-100 mt-2">
-                          <div className="flex items-center justify-between font-bold text-amber-300 text-[11.5px] pb-1 border-b border-indigo-800">
-                            <span className="flex items-center gap-1">
-                              <BookOpen className="w-3.5 h-3.5" /> Báo Cáo Buổi Học Bù Từ Trợ Giảng
-                            </span>
-                            <span className="text-[9.5px] text-indigo-300 font-mono">
-                              {new Date(mc.contentSentToParentsAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          </div>
-                          {mc.lessonContent && (
-                            <div>
-                              <strong className="text-white">Nội dung đã học:</strong> {mc.lessonContent}
-                            </div>
-                          )}
-                          {mc.homework && (
-                            <div>
-                              <strong className="text-amber-200">Dặn dò & BTVN:</strong> {mc.homework}
-                            </div>
-                          )}
-                          {mc.assistantFeedback && (
-                            <div className="italic text-indigo-200">
-                              <strong className="text-emerald-300">Nhận xét con:</strong> &quot;{mc.assistantFeedback}&quot;
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1188,7 +1166,12 @@ export default function ParentPortal() {
                 { dayOfWeek: 8, label: "Chủ Nhật" },
               ].map((day) => {
                 const matchedSlot = (activeClass?.schedules || []).find((s) => s.dayOfWeek === day.dayOfWeek);
-                const hasClass = !!matchedSlot;
+                const dayMakeups = studentMakeupClasses.filter((mc) => {
+                  const d = new Date(mc.dateStr + "T00:00:00");
+                  const mcDay = d.getDay() === 0 ? 8 : d.getDay() + 1;
+                  return mcDay === day.dayOfWeek;
+                });
+                const hasClass = !!matchedSlot || dayMakeups.length > 0;
                 const currentJsDay = new Date().getDay();
                 const currentOurDay = currentJsDay === 0 ? 8 : currentJsDay + 1;
                 const isToday = day.dayOfWeek === currentOurDay;
@@ -1199,6 +1182,8 @@ export default function ParentPortal() {
                     className={`p-3 rounded-2xl border transition flex flex-col justify-between min-h-[110px] ${
                       isToday
                         ? "bg-gradient-to-b from-blue-50/90 via-amber-50/50 to-white border-blue-400 shadow-md ring-2 ring-blue-400"
+                        : dayMakeups.length > 0 && !matchedSlot
+                        ? "bg-gradient-to-b from-indigo-50 to-white border-indigo-400 shadow-sm ring-1 ring-indigo-300"
                         : hasClass
                         ? "bg-gradient-to-b from-amber-50 to-white border-amber-400 shadow-sm ring-1 ring-amber-300"
                         : "bg-slate-50/70 border-slate-200 text-slate-400"
@@ -1217,12 +1202,12 @@ export default function ParentPortal() {
                           )}
                         </div>
                         {hasClass && (
-                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                          <span className={`w-2 h-2 rounded-full ${dayMakeups.length > 0 ? "bg-indigo-500" : "bg-amber-500"} animate-pulse`} />
                         )}
                       </div>
 
-                      {hasClass && matchedSlot ? (
-                        <div className="space-y-1">
+                      {matchedSlot && (
+                        <div className="space-y-1 mb-1.5">
                           <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-bold font-mono text-[11px] shadow-2xs">
                             {matchedSlot.startTime} - {matchedSlot.endTime}
                           </span>
@@ -1230,7 +1215,26 @@ export default function ParentPortal() {
                             {(matchedSlot.classroom || activeClass?.classroom || "Phòng học").split("(")[0]}
                           </div>
                         </div>
-                      ) : (
+                      )}
+
+                      {dayMakeups.map((mc) => {
+                        const [, m, d] = mc.dateStr.split("-");
+                        return (
+                          <div key={mc.id} className="space-y-0.5 p-1.5 rounded-lg bg-indigo-50 border border-indigo-200 mt-1">
+                            <span className="inline-block px-1.5 py-0.2 rounded bg-indigo-600 text-white font-bold text-[9.5px]">
+                              Lịch Học Bù ({d}/{m})
+                            </span>
+                            <div className="font-mono font-bold text-[10.5px] text-indigo-950">
+                              {mc.startTime} - {mc.endTime}
+                            </div>
+                            <div className="text-[10px] font-semibold text-indigo-800 line-clamp-1">
+                              {mc.classroomName}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {!matchedSlot && dayMakeups.length === 0 && (
                         <div className="text-[10px] text-slate-400 mt-2 italic">
                           Không có ca
                         </div>
@@ -1239,7 +1243,9 @@ export default function ParentPortal() {
 
                     <div className="pt-1.5 border-t border-slate-100 text-[9.5px]">
                       {hasClass ? (
-                        <span className="text-emerald-700 font-bold">✓ Có ca học</span>
+                        <span className={dayMakeups.length > 0 && !matchedSlot ? "text-indigo-700 font-bold" : "text-emerald-700 font-bold"}>
+                          {dayMakeups.length > 0 && !matchedSlot ? "✓ Có lịch học bù" : "✓ Có ca học"}
+                        </span>
                       ) : (
                         <span className="text-slate-400">Nghỉ / Ôn bài</span>
                       )}
@@ -1289,12 +1295,49 @@ export default function ParentPortal() {
 
                   <div className="text-[11px] text-emerald-800 font-medium pt-2 border-t border-slate-100 flex items-center justify-between">
                     <span>Trạng thái: Đang diễn ra đều đặn</span>
-                    <span className="font-semibold text-amber-700">Đưa đón: Tầng 1 sảnh chính</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Lịch Học Bù Của Bé (Chỉ hiện lịch học + phòng học, ẩn GV, bạn cùng lớp & nội dung) */}
+          {studentMakeupClasses.length > 0 && (
+            <div className="space-y-2">
+              <h5 className="font-bold text-xs uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+                <CalendarCheck className="w-3.5 h-3.5 text-indigo-600" /> Lịch Học Bù Trong Tháng Của Bé
+              </h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {studentMakeupClasses.map((mc) => {
+                  const [y, m, d] = mc.dateStr.split("-");
+                  const formattedDate = `${d}/${m}/${y}`;
+                  return (
+                    <div
+                      key={mc.id}
+                      className="p-4 rounded-xl border border-indigo-300 bg-gradient-to-br from-indigo-50/70 via-white to-white space-y-2 shadow-2xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold px-3 py-1 rounded-lg bg-indigo-600 text-white shadow-2xs">
+                          Lịch Học Bù • {formattedDate}
+                        </span>
+                        <span className="text-xs font-bold text-slate-800 font-mono flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg">
+                          <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                          {mc.startTime} - {mc.endTime}
+                        </span>
+                      </div>
+                      <div className="text-xs pt-1 flex items-center justify-between">
+                        <span className="text-slate-500">Phòng học:</span>
+                        <strong className="text-slate-900 flex items-center gap-1">
+                          <DoorOpen className="w-3.5 h-3.5 text-indigo-600" />
+                          {mc.classroomName}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Dặn dò phụ huynh đưa đón */}
           <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl text-xs space-y-1 text-amber-950">
@@ -1302,7 +1345,7 @@ export default function ParentPortal() {
               <Sparkles className="w-4 h-4 text-amber-600" /> Thông tin đưa đón:
             </strong>
             <p className="leading-relaxed text-[11.5px] text-amber-900">
-              Bố mẹ vui lòng đưa bé đến lớp trước giờ học từ 5–10 phút để Thầy Trợ Giảng điểm danh và kiểm tra bài tập sách Workbook. Khi đón bé, phụ huynh vui lòng đứng tại sảnh đón tầng 1 trung tâm để đảm bảo an toàn tuyệt đối cho các con. Hotline trung tâm: <strong>0901 234 567</strong>.
+              Phụ huynh vui lòng đưa con đến lớp trước giờ học từ 5–10 phút, mang theo đầy đủ đồ dùng học tập và sách vở. Khi gia đình có việc cần xin nghỉ cho con, vui lòng nhắn vào nhóm Zalo chung của lớp để thầy cô cùng nắm được thông tin.
             </p>
           </div>
         </div>
@@ -1360,7 +1403,7 @@ export default function ParentPortal() {
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                <span>Đã nộp & Đã chấm (Completed)</span>
+                <span>Đã nộp & Đã kiểm tra</span>
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                   teamsHwTab === "COMPLETED" ? "bg-emerald-800 text-white" : "bg-slate-200 text-slate-700 font-semibold"
                 }`}>
@@ -1392,9 +1435,6 @@ export default function ParentPortal() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-xs font-mono">
                           {assign.sessionTitle}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[11px]">
-                          Thang điểm: {assign.points} điểm
                         </span>
                       </div>
 
@@ -1489,16 +1529,13 @@ export default function ParentPortal() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              Đã Chấm Điểm
-                            </span>
-                            <span className="font-mono text-base font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200">
-                              {sub.score} / 10
+                              Đã Kiểm Tra
                             </span>
                           </div>
                         ) : (
                           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            Đã Nộp • Đang Chờ Trợ Giảng Chấm
+                            Đã Nộp • Đang Chờ Trợ Giảng Kiểm Tra
                           </span>
                         )}
                       </div>
@@ -1697,7 +1734,7 @@ export default function ParentPortal() {
       {/* ============================================================== */}
       {activeTab === "TUITION_LEAVE" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {/* Thẻ 1: Chi tiết học phí định kỳ theo tháng */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4 flex flex-col justify-between">
               <div>
@@ -1807,59 +1844,6 @@ export default function ParentPortal() {
               >
                 <QrCode className="w-4 h-4" />
                 <span>Quét Mã VietQR Đóng Học Phí</span>
-              </button>
-            </div>
-
-            {/* Thẻ 2: Quản lý Đơn Xin Nghỉ Phép */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <h4 className="font-bold text-base text-slate-900 flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-rose-500" />
-                    Đơn Xin Nghỉ Phép Buổi Học
-                  </h4>
-                  <span className="text-xs bg-rose-50 text-rose-800 font-bold px-2 py-0.5 rounded-full border border-rose-200">
-                    Báo Nghỉ Phép
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-                  Khi gia đình có việc bận hoặc bé ốm, bố mẹ vui lòng gửi đơn xin nghỉ trước giờ học ít nhất 1–2 tiếng để trung tâm bố trí điểm danh có phép, giáo viên & trợ giảng hỗ trợ con học bù hoặc gửi tài liệu ôn bài.
-                </p>
-
-                {/* Danh sách đơn xin nghỉ gần đây */}
-                <div className="mt-3 space-y-2">
-                  <span className="text-[11px] font-bold text-slate-700 block">Lịch sử xin nghỉ phép:</span>
-                  {studentLeaveRequests.length === 0 ? (
-                    <div className="text-[11px] text-slate-400 italic p-3 bg-slate-50 rounded-xl text-center">
-                      Bé chưa có lần xin nghỉ phép nào. Chăm chỉ đến lớp 100%!
-                    </div>
-                  ) : (
-                    studentLeaveRequests.map((req) => (
-                      <div key={req.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-800">
-                            Ngày nghỉ: {req.dateStr}
-                          </span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                            {req.status === "APPROVED" ? "✓ Đã Bảo Lưu" : "Đang Chờ"}
-                          </span>
-                        </div>
-                        <p className="text-slate-600 text-[11px]">
-                          Lý do: {req.reasonDetail}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={() => setIsLeaveModalOpen(true)}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4 text-amber-400" />
-                <span>Tạo Đơn Xin Nghỉ Phép Mới</span>
               </button>
             </div>
           </div>
@@ -2011,111 +1995,7 @@ export default function ParentPortal() {
       )}
 
       {/* ============================================================== */}
-      {/* MODAL 2: TẠO ĐƠN XIN NGHỈ PHÉP */}
-      {/* ============================================================== */}
-      {isLeaveModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h4 className="font-bold text-base text-slate-900 flex items-center gap-1.5">
-                  <Clock className="w-5 h-5 text-rose-500" />
-                  Đơn Xin Nghỉ Phép Buổi Học
-                </h4>
-                <p className="text-xs text-slate-500">
-                  Học sinh: <strong className="text-slate-800">{activeStudent?.fullName}</strong> ({activeClass?.name})
-                </p>
-              </div>
-              <button
-                onClick={() => setIsLeaveModalOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSendLeaveRequest} className="space-y-3.5 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  Chọn ngày xin nghỉ:
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={leaveDate}
-                  onChange={(e) => setLeaveDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-medium focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  Lý do xin nghỉ:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: "SICK", label: "🩺 Bé ốm / Sốt" },
-                    { id: "FAMILY_BUSY", label: "🏡 Việc gia đình bận" },
-                    { id: "SCHOOL_EXAM", label: "📚 Trùng lịch thi ở trường" },
-                    { id: "OTHER", label: "💬 Lý do khác" },
-                  ].map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setLeaveCategory(cat.id as LeaveReasonCategory)}
-                      className={`p-2 rounded-xl border text-center transition font-medium ${
-                        leaveCategory === cat.id
-                          ? "bg-amber-500 text-slate-950 border-amber-500 font-bold"
-                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  Ghi chú chi tiết gửi cô giáo & trợ giảng:
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={leaveDetail}
-                  onChange={(e) => setLeaveDetail(e.target.value)}
-                  placeholder="Ví dụ: Bé bị sốt từ sáng nay, gia đình xin phép cô cho bé nghỉ buổi Thứ 5 này và xin bảo lưu buổi học ạ..."
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-[11px] text-emerald-800 space-y-0.5">
-                <span className="font-bold block">✓ Quyền lợi bảo lưu:</span>
-                <span>Buổi nghỉ phép được bảo lưu 100%, không bị trừ học phí. Trợ giảng sẽ gửi tài liệu bài học để con tự ôn tập tại nhà.</span>
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setIsLeaveModalOpen(false)}
-                  className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 bg-gradient-to-r from-rose-600 to-amber-600 text-white font-bold rounded-xl text-xs shadow-xs hover:opacity-95 transition"
-                >
-                  Gửi Đơn Xin Nghỉ Phép
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* MODAL 3: NỘP BÀI TẬP VỀ NHÀ TRỰC TUYẾN (MICROSOFT TEAMS STYLE) */}
+      {/* MODAL 2: NỘP BÀI TẬP VỀ NHÀ TRỰC TUYẾN (MICROSOFT TEAMS STYLE) */}
       {/* ============================================================== */}
       {isHomeworkModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
@@ -2159,7 +2039,7 @@ export default function ParentPortal() {
                   {selectedAssignmentForSubmission.title}
                 </div>
                 <div className="text-[11px] text-rose-700 font-semibold flex items-center gap-1 pt-0.5">
-                  <Clock className="w-3 h-3 text-rose-600" /> Hạn nộp: {selectedAssignmentForSubmission.dueDateTime} • Thang điểm: {selectedAssignmentForSubmission.points} điểm
+                  <Clock className="w-3 h-3 text-rose-600" /> Hạn nộp: {selectedAssignmentForSubmission.dueDateTime}
                 </div>
               </div>
             ) : (

@@ -246,7 +246,7 @@ Trung tâm Ms. Dung Shiny xin thông báo lịch lớp học bù trong ${makeupC
 - Nội dung trọng tâm: ${makeupClass.focusContent}
 
 * Quy định trung tâm: Buổi học bù chỉ diễn ra trong tháng và sẽ được chốt quyền lợi khi sang tháng mới. Kính mong Phụ huynh nhắc con đi học đúng giờ và mang theo đầy đủ sách vở, bút.
-Hotline hỗ trợ: 0912 345 678.
+Hotline hỗ trợ: 0964.645.174.
 Trân trọng cảm ơn Quý Phụ huynh!`;
 }
 
@@ -281,7 +281,7 @@ Theo quy chuẩn của trung tâm Ms. Dung Shiny, học sinh nghỉ học có qu
 Để trung tâm sắp xếp lịch học bù phù hợp nhất cho con, kính nhờ Quý Phụ huynh phản hồi lại các khung giờ con có thể tham gia:
 1. Các buổi tối trong tuần: Khung 17:30 - 19:00 hoặc 19:00 - 20:30
 2. Cuối tuần: Khung Sáng / Chiều Thứ Bảy hoặc Chủ Nhật
-Quý Phụ huynh vui lòng nhắn lại tin nhắn này hoặc liên hệ Hotline: 0912 345 678 để trung tâm lên lịch bù cho bé.
+Quý Phụ huynh vui lòng nhắn lại tin nhắn này hoặc liên hệ Hotline: 0964.645.174 để trung tâm lên lịch bù cho bé.
 Trân trọng cảm ơn Quý Phụ huynh!`;
 }
 
@@ -302,5 +302,5 @@ Trợ giảng/Giáo viên phụ trách xin gửi tóm tắt nội dung buổi h�
 - Lớp học bù: ${makeupClass.title}
 - Nội dung đã ôn tập: ${makeupClass.lessonContent || makeupClass.focusContent}
 ${makeupClass.homework ? `- Bài tập về nhà / Dặn dò: ${makeupClass.homework}\n` : ""}${makeupClass.assistantFeedback ? `- Nhận xét của Trợ giảng: ${makeupClass.assistantFeedback}\n` : ""}
-Kính mong Quý Phụ huynh tiếp tục đồng hành và nhắc nhở con ôn tập! Hotline: 0912 345 678.`;
+Kính mong Quý Phụ huynh tiếp tục đồng hành và nhắc nhở con ôn tập! Hotline: 0964.645.174.`;
 }

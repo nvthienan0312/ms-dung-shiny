@@ -85,7 +85,7 @@ export default function HomePage() {
   const [activeRole, setActiveRole] = useState<UserRole>("ADMIN");
   const [adminTab, setAdminTab] = useState<"TIMETABLE" | "CLASSES" | "STUDENTS" | "STAFF" | "ROOMS" | "COURSES" | "ATTENDANCE" | "LOGS" | "PAYROLL" | "TUITION" | "MAKEUP_CLASSES">("TIMETABLE");
   const [teacherTab, setTeacherTab] = useState<"TIMETABLE" | "ATTENDANCE" | "CLASS_LOGS" | "HOMEWORK_TRACKING" | "MONTHLY_EXAM" | "INCIDENT_NOTES" | "PAYROLL">("ATTENDANCE");
-  const [assistantTab, setAssistantTab] = useState<"TIMETABLE" | "ATTENDANCE" | "WORKBOOK" | "HOMEWORK_GRADING" | "INCIDENT_NOTES" | "PAYROLL">("ATTENDANCE");
+  const [assistantTab, setAssistantTab] = useState<"TIMETABLE" | "ATTENDANCE" | "WORKBOOK" | "HOMEWORK_GRADING" | "MAKEUP_CLASSES" | "INCIDENT_NOTES" | "PAYROLL">("ATTENDANCE");
   const [isAdminChangePasswordOpen, setIsAdminChangePasswordOpen] = useState<boolean>(false);
   const [isZaloTemplatesOpen, setIsZaloTemplatesOpen] = useState<boolean>(false);
   const [isZaloSessionOpen, setIsZaloSessionOpen] = useState<boolean>(false);
@@ -465,7 +465,7 @@ export default function HomePage() {
               </div>
               <h2 className="text-xl font-bold tracking-tight">Xin chào, {currentUserAccount.name}</h2>
               <p className="text-blue-100 text-xs mt-1">
-                Điểm danh 1-chạm, kiểm tra sách Workbook, chấm BTVN online trực tiếp và điểm danh ca học bù
+                Điểm danh 1-chạm, kiểm tra BTVN tại lớp, kiểm tra &amp; nhận xét BTVN online và phụ trách lớp học bù
               </p>
             </div>
           </div>
@@ -760,7 +760,7 @@ export default function HomePage() {
                   <UserCheck className="w-5 h-5 text-blue-600" /> Bàn Làm Việc Vận Hành Trợ Giảng (TA Workspace)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Trợ giảng: <span className="font-semibold text-slate-800">{currentAssistantStaff?.fullName || currentUser.name}</span> • Điểm danh, kiểm tra sách bài tập, chấm BTVN online &amp; xác nhận lương
+                  Trợ giảng: <span className="font-semibold text-slate-800">{currentAssistantStaff?.fullName || currentUser.name}</span> • Điểm danh, kiểm tra BTVN, lớp học bù &amp; xác nhận lương
                 </p>
               </div>
 
@@ -776,8 +776,9 @@ export default function HomePage() {
                     >
                       <option value="TIMETABLE">📅 Thời Khóa Biểu</option>
                       <option value="ATTENDANCE">✅ Điểm Danh Đầu Giờ</option>
-                      <option value="WORKBOOK">📖 Kiểm Tra Sách Workbook</option>
-                      <option value="HOMEWORK_GRADING">📝 Chấm BTVN Online</option>
+                      <option value="WORKBOOK">📖 Kiểm Tra BTVN Tại Lớp</option>
+                      <option value="HOMEWORK_GRADING">📝 Kiểm Tra BTVN Online</option>
+                      <option value="MAKEUP_CLASSES">🔄 Lớp Học Bù</option>
                       <option value="INCIDENT_NOTES">⚠️ Lưu Ý Riêng Cho HS</option>
                       <option value="PAYROLL">💰 Bảng Chấm Công & Lương</option>
                     </select>
@@ -813,7 +814,7 @@ export default function HomePage() {
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
-                    <BookCheck className="w-3.5 h-3.5 text-indigo-700" /> Kiểm Tra Sách Workbook
+                    <BookCheck className="w-3.5 h-3.5 text-indigo-700" /> Kiểm Tra BTVN
                   </button>
                   <button
                     onClick={() => setAssistantTab("HOMEWORK_GRADING")}
@@ -823,7 +824,17 @@ export default function HomePage() {
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
-                    <FileCheck className="w-3.5 h-3.5 text-amber-700" /> Chấm BTVN Online
+                    <FileCheck className="w-3.5 h-3.5 text-amber-700" /> Kiểm Tra BTVN Online
+                  </button>
+                  <button
+                    onClick={() => setAssistantTab("MAKEUP_CLASSES")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                      assistantTab === "MAKEUP_CLASSES"
+                        ? "bg-amber-500 text-slate-950 font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <CalendarCheck className="w-3.5 h-3.5 text-purple-700" /> Lớp Học Bù
                   </button>
                   <button
                     onClick={() => setAssistantTab("INCIDENT_NOTES")}
@@ -853,6 +864,7 @@ export default function HomePage() {
             {assistantTab === "ATTENDANCE" && <AttendanceManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}
             {assistantTab === "WORKBOOK" && <WorkbookCheckManager currentStaffId={currentStaffId} />}
             {assistantTab === "HOMEWORK_GRADING" && <HomeworkGradingManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}
+            {assistantTab === "MAKEUP_CLASSES" && <MakeupClassesManager userRole="ASSISTANT" />}
             {assistantTab === "INCIDENT_NOTES" && <StudentIncidentNotesManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}
             {assistantTab === "PAYROLL" && <StaffTimesheetViewer userRole="ASSISTANT" currentStaffId={currentStaffId} />}
           </div>

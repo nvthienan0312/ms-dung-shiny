@@ -239,7 +239,7 @@ export default function WorkbookCheckManager({
           <div>
             <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
               <BookCheck className="w-5 h-5 text-blue-600" />
-              Kiểm Tra BTVN Sách / Vở Workbook (Trợ Giảng: {activeStaff.fullName})
+              Kiểm Tra BTVN Tại Lớp (Trợ Giảng: {activeStaff.fullName})
             </h3>
           </div>
 

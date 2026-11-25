@@ -519,6 +519,7 @@ export default function AttendanceManager({
     const studentInfo = students.find((s) => s.id === studentId);
     const parentPhone = studentInfo?.parentPhone || "";
     const parentName = studentInfo?.parentName || "Phụ huynh";
+    const entryNote = formEntries.find((e) => e.studentId === studentId)?.note;
     let content: string;
     try {
       content = renderZaloTemplate("attendanceAbsent", {
@@ -529,6 +530,9 @@ export default function AttendanceManager({
         assistantName: effectiveAssistant || "Trợ giảng lớp",
         centerHotline: "0964.645.174",
       });
+      if (entryNote && !content.includes(entryNote)) {
+        content = `${content}\n• Ghi chú / Tình trạng: ${entryNote}`;
+      }
     } catch {
       content = generateAttendanceAbsentZaloMessage({
         studentName,
@@ -536,6 +540,7 @@ export default function AttendanceManager({
         className: currentClass?.name || "Lớp học",
         dateStr: selectedDateStr,
         assistantName: effectiveAssistant,
+        reason: entryNote,
       });
     }
     setEditZaloModal({
@@ -1485,7 +1490,13 @@ export default function AttendanceManager({
                               </span>
                             </div>
                             <div className="flex items-center gap-1 flex-wrap">
-                              {["Sốt nhẹ", "Về quê", "Trùng lịch học thêm", "Bận gia đình"].map((reason) => (
+                              {[
+                                "Đã đến giờ học nhưng thầy cô chưa thấy con đến lớp ạ",
+                                "Sốt nhẹ",
+                                "Về quê",
+                                "Trùng lịch học thêm",
+                                "Bận gia đình",
+                              ].map((reason) => (
                                 <button
                                   key={reason}
                                   type="button"
