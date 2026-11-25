@@ -58,6 +58,9 @@ Hệ thống quản lý trung tâm tiếng Anh **Ms. Dung Shiny** (Next.js 14, T
     - **Cổng Phụ Huynh (In-App Push & Dashboard)**: Thông báo học phí, bài học hôm nay, nhắc nộp bài tập, điểm thi tháng và khảo sát học bù được gửi trực tiếp lên Cổng Phụ Huynh theo thời gian thực.
     - **Tin Nhắn SMS / Độc lập**: Hỗ trợ xuất mẫu tin nhắn và thông báo trực tiếp tới số điện thoại phụ huynh.
     - **Sẵn sàng mở rộng (Extensible Notification Architecture)**: Đã dọn sạch cơ chế giả lập Zalo không chính thức; sẵn sàng tích hợp trực tiếp kênh Zalo chính thức (Zalo OA / Webhook) an toàn tuyệt đối.
+  - **Tự Động Gửi Báo Cáo Điểm Danh Vào Nhóm Zalo Lớp**: Khi Trợ giảng lưu điểm danh, hệ thống tự động tổng hợp số lượng có mặt, tỷ lệ chuyên cần, danh sách học sinh vắng kèm lý do để gửi vào nhóm Zalo lớp học (`autoSendZaloGroup: true`). Có modal xem trước và chỉnh sửa linh hoạt.
+  - **Bàn Giao Lớp Học Giữa Các Nhân Sự & Tự Động Khóa Tài Khoản Nghỉ Việc (`StaffClassTransferModal`)**: Khi nhân sự nghỉ việc/chuyển ca, Admin 1-chạm bàn giao toàn bộ lớp học và các ca trong tuần (`weeklySchedule`) sang nhân sự mới, đồng thời tự động khóa quyền đăng nhập của nhân sự cũ (`isLoginAllowed: false`).
+  - **Tối Ưu Mobile-First & Ứng Dụng Web Tiến Bộ PWA**: Thiết kế chuẩn Responsive cho di động (Avatar Popover Menu, Bảng cuộn cảm ứng Touch-Friendly, Khoảng cách chạm $\ge 44\text{px}$, Safe-area Insets iOS/Android) và hỗ trợ PWA (`manifest.json`, Service Worker `sw.js`, `PWAInstaller`) cho phép cài đặt App trực tiếp lên màn hình chính.
 - **Hệ Thống Đăng Nhập & Phân Quyền Bảo Mật Tuyệt Đối (Auth & Permissions)**:
   - **Tài khoản Admin**: SĐT `0964645174`, Mật khẩu mặc định `123`. **Chỉ duy nhất Admin mới có quyền đổi mật khẩu** thông qua popup `AdminChangePasswordModal`.
   - **Tài khoản Giáo viên & Trợ giảng**:

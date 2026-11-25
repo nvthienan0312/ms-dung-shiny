@@ -2,10 +2,10 @@
 ## HỆ THỐNG QUẢN LÝ TRUNG TÂM TIẾNG ANH MS. DUNG SHINY
 *(Ms. Dung Shiny English Center Management System)*
 
-> **Ngày cập nhật:** 15/11/2026  
-> **Trạng thái hệ thống:** Hoàn thiện 100% Hệ Thống Tự Động Gửi Zalo Không Cần Ctrl+V (Auto-Send Engine) & Cơ chế Hàng Đợi Gửi Nhiều Giãn Cách 2-3 Phút Chống Quét Spam Zalo (Áp dụng đồng bộ cho Học phí toàn lớp, Nhắc nợ hàng loạt, Nhật ký & BTVN 100% PH, Khảo sát lịch rảnh học bù, Thông báo ca học bù, Điểm danh báo vắng, Lưu ý buổi học; Tích hợp bộ kỹ năng tối ưu token Ponytail 'The Ladder of Laziness' & Chuẩn kiến trúc Front-end/Back-end).  
-> **Chất lượng mã nguồn:** TypeScript noEmit 0 errors, Next.js Production Build 100% Passed (Exit code 0), Dev Server 200 OK  
-> **Storage Data Version:** `ms_dung_shiny_center_data_v22`  
+> **Ngày cập nhật:** 23/11/2026  
+> **Trạng thái hệ thống:** Hoàn thiện 100% Hệ Thống Quản Lý Toàn Diện: Tự Động Gửi Zalo Không Cần Ctrl+V (Auto-Send Engine), Hàng Đợi 2-3 Phút Chống Quét Spam Zalo, Tự Động Báo Cáo Điểm Danh Nhóm Zalo Lớp, Bàn Giao Lớp Học & Tự Động Khóa Tài Khoản Nhân Sự Nghỉ Việc, Tối Ưu Hóa Mobile-First Toàn Diện (Avatar Popover Menu, Bảng Vuốt Cảm Ứng, Safe-Area Insets) & Ứng Dụng Web Tiến Bộ PWA (Cài Đặt App Trực Tiếp Màn Hình Chính Trên iOS, Android, Desktop).  
+> **Chất lượng mã nguồn:** TypeScript noEmit 0 errors, ESLint 0 errors, Next.js Dev Server 200 OK, 100% Validation & Unit Tests Passed (33/33 tests).  
+> **Storage Data Version:** `ms_dung_shiny_center_data_v23_clean`  
 > **Mục đích tài liệu:** Lưu trữ toàn bộ tiến độ, kiến trúc, quy chuẩn tư duy nghiệp vụ, các module chức năng và hướng dẫn bàn giao để chuyển đổi làm việc sang tài khoản/môi trường khác mà không bị gián đoạn.
 
 ---
@@ -16,7 +16,7 @@
 - **Ngôn ngữ:** TypeScript 5.6
 - **Giao diện:** Tailwind CSS, Lucide React (Bộ icon đồng bộ, chuẩn Mobile-First)
 - **Quản lý dữ liệu:** 
-  - Giai đoạn hiện tại (Prototype/Demo): `CenterContext` kết hợp `localStorage` tự động đồng bộ thời gian thực (`STORAGE_KEY: ms_dung_shiny_center_data_v16`).
+  - Giai đoạn hiện tại (Prototype/Demo): `CenterContext` kết hợp `localStorage` tự động đồng bộ thời gian thực (`STORAGE_KEY: ms_dung_shiny_center_data_v23_clean`, hỗ trợ migration từ `ms_dung_shiny_center_data_v22`).
   - Đã có sẵn cấu trúc Database ORM: Prisma schema đầy đủ tại [`prisma/schema.prisma`](file:///d:/MsDungShinnyPrj_ver02/prisma/schema.prisma).
 - **Cổng chạy máy chủ (Localhost):** `http://localhost:3000` / `http://localhost:3001`
 - **Lệnh thực thi chính:**
@@ -187,6 +187,32 @@
   7. **Lưu Ý Buổi Học (`StudentIncidentNotesManager`) & Chấm BTVN (`HomeworkGradingManager`)**: Tự động cập nhật hiển thị và gửi lưu ý riêng tới đúng SĐT phụ huynh vừa thay đổi.
   8. **Cơ chế Fallback Hai Chiều (Two-Way Resilient Fallback)**: Tại các màn hình gửi tin và in biên lai, hệ thống luôn đối chiếu chéo giữa bản ghi nghiệp vụ và hồ sơ gốc trong `students`, đảm bảo luôn ưu tiên lấy SĐT mới nhất.
 
+### 2.18. Bàn Giao Lớp Học Khi Nhân Sự Nghỉ Việc Hoặc Chuyển Ca (StaffClassTransferModal)
+- **Quy trình 1-chạm bàn giao toàn bộ lớp**: Khi Giáo viên hoặc Trợ giảng nghỉ việc, nghỉ thai sản hoặc chuyển ca, Admin không cần vào từng lớp để sửa thủ công.
+- **Tính năng nổi bật**:
+  - Modal chuyên dụng `StaffClassTransferModal` tích hợp ngay trong tab Quản lý nhân sự (`StaffManager`).
+  - Chọn nhân sự kế nhiệm cùng vai trò (GV kế nhiệm cho GV cũ, TA kế nhiệm cho TA cũ) với bộ lọc chặn sai vai trò.
+  - Danh sách lớp học bàn giao kèm checkbox chọn linh hoạt (mặc định chọn 100% lớp nhân sự cũ phụ trách).
+  - **Cập nhật đồng bộ cấp độ buổi học**: Đổi `teacherId`/`assistantId` ở cấp độ lớp học và đồng thời cập nhật toàn bộ các ca học trong tuần (`weeklySchedule`) có nhân sự cũ phụ trách sang nhân sự mới.
+  - **Tự động khóa tài khoản nhân sự cũ**: Checkbox tùy chọn "Khóa tài khoản đăng nhập của nhân sự cũ sau khi bàn giao thành công" (`isLoginAllowed: false`), ngăn chặn rò rỉ dữ liệu hoặc đăng nhập trái phép sau khi thôi việc.
+
+### 2.19. Tự Động Gửi Báo Cáo Điểm Danh Vào Nhóm Zalo Lớp Khi Lưu Điểm Danh (AttendanceGroupReport)
+- **Báo cáo chuyên cần tự động ngay tại lớp**: Sau khi Trợ giảng hoàn tất điểm danh 1-chạm đầu giờ và bấm lưu, hệ thống tự động kích hoạt tính năng gửi báo cáo điểm danh vào Nhóm Zalo của lớp học (`autoSendZaloGroup: true`).
+- **Mẫu báo cáo chuẩn hóa chuyên nghiệp**:
+  - Thông tin đầy đủ: Tên lớp, mã lớp, ngày học, khung giờ ca học.
+  - Thống kê tỷ lệ chuyên cần: Số lượng học sinh có mặt / tổng sĩ số và phần trăm (%).
+  - Danh sách học sinh vắng: Liệt kê rõ ràng họ tên từng học sinh vắng kèm lý do xin phép hoặc chưa có lý do.
+  - Trường hợp đi học 100%: Tự động xuất lời chúc mừng và biểu dương tinh thần chuyên cần của cả lớp.
+- **Liên kết cấu hình Link nhóm Zalo (`zaloGroupUrl`)**:
+  - Admin quản lý và cấu hình link nhóm Zalo trực tiếp trong danh sách lớp học (`ClassesManager`).
+  - Có modal xem trước và tinh chỉnh nội dung trước khi phát tin hoặc gửi tự động trực tiếp.
+
+### 2.20. Tối Ưu Hóa Trải Nghiệm Mobile-First Toàn Diện & Ứng Dụng Tiến Bộ PWA (Progressive Web App)
+- **Header Avatar Popover Menu trên thiết bị di động**: Trên màn hình nhỏ (< 768px), thanh điều hướng thu gọn các nút phụ trợ vào Avatar popover menu (Đổi mật khẩu Admin, Kết nối tài khoản Zalo, Đăng xuất, xem thông tin người dùng và vai trò), giữ cho giao diện luôn thoáng đãng.
+- **Bảng vuốt cảm ứng (Touch-Friendly Tables)**: Toàn bộ bảng danh sách (Điểm danh, Học sinh, Bảng lương, Học phí, Lớp học bù) được tối ưu cuộn ngang mượt mà, bảo đảm không vỡ giao diện trên mọi kích thước màn hình smartphone.
+- **Touch Controls & Safe-Area Insets**: Tối ưu khoảng cách chạm chuẩn ngón tay ($\ge 44\text{px}$), hỗ trợ vùng an toàn tai thỏ và thanh Home bar ảo trên iOS/Android.
+- **Hỗ trợ PWA Toàn Diện (`PWAInstaller`)**: Tích hợp Service Worker (`sw.js`), Manifest (`manifest.json`), bộ icon chuẩn PNG/SVG. Cho phép người dùng và phụ huynh cài đặt ứng dụng trực tiếp lên màn hình chính điện thoại như một App di động native mà không cần cài qua App Store/Google Play.
+
 ---
 
 ## 3. HIỆN TRẠNG 4 PHÂN HỆ VAI TRÒ (ROLES)
@@ -324,6 +350,10 @@ d:\MsDungShinnyPrj_ver02\
 | **Trợ giảng - Không gian làm việc** | Có tab Nhật ký buổi học gây trùng lặp với Giáo viên | **Xóa hoàn toàn tab Nhật ký buổi học** khỏi tài khoản Trợ giảng. TA tập trung vào Điểm danh, Workbook, Chấm online, Lưu ý riêng, Lương. |
 | **Cổng phụ huynh** | Từng bị lỗi Unhandled Runtime Error và nộp nhầm buổi | Sửa lỗi undefined array, chuẩn hóa MS Teams Assignment khóa cứng theo ca học, hiển thị TKB 7 ngày kèm giờ học cố định. |
 | **Tư duy học phí** | Có tính năng đếm số buổi còn lại và trừ buổi khi điểm danh | **Xóa 100% logic trừ buổi học**; kiên định với thu học phí cố định theo tháng (ngày 01 - 10). |
+| **Báo Cáo Điểm Danh Nhóm Zalo Lớp Tự Động** | Điểm danh xong phải nhắn thủ công hoặc không có báo cáo lên nhóm phụ huynh của lớp | Tự động tổng hợp thông tin buổi học (tên lớp, mã lớp, ngày, ca học, số lượng có mặt / tổng sĩ số, %, danh sách học sinh vắng kèm lý do hoặc biểu dương 100% chuyên cần) và gửi trực tiếp vào nhóm Zalo của lớp ngay khi Trợ giảng bấm Lưu điểm danh (`autoSendZaloGroup: true`). Có modal xem trước và chỉnh sửa linh hoạt. |
+| **Bàn Giao Lớp Học Giữa Nhân Sự & Tự Động Khóa Tài Khoản Nghỉ Việc** | GV/TA nghỉ việc phải sửa thủ công từng lớp và từng ca học trong tuần | Tích hợp modal `StaffClassTransferModal` 1-chạm: Chọn nhân sự kế nhiệm cùng vai trò, chọn danh sách lớp bàn giao, tự động cập nhật `teacherId`/`assistantId` của lớp và toàn bộ các ca học trong tuần (`weeklySchedule`), tùy chọn tự động khóa quyền đăng nhập nhân sự cũ (`isLoginAllowed: false`). Đã kiểm thử 10/10 test cases. |
+| **Tối Ưu Mobile Responsive Toàn Diện (Mobile-First)** | Giao diện mobile bị rườm rà ở Header và bảng dữ liệu bị co hẹp | Thiết kế lại Mobile Header với Avatar Popover Menu; tối ưu hóa bảng cuộn cảm ứng (Touch-Friendly Tables); khoảng cách chạm ngón tay $\ge 44\text{px}$; tích hợp safe-area insets cho tai thỏ và home bar trên iOS/Android. |
+| **Hỗ Trợ Ứng Dụng Web Tiến Bộ PWA (Progressive Web App)** | Phải mở trình duyệt gõ URL, không có biểu tượng trên màn hình chính | Tích hợp đầy đủ tiêu chuẩn PWA: `manifest.json`, Service Worker `sw.js` hỗ trợ offline cache cơ bản, bộ icon chuẩn hóa đa kích cỡ, component `PWAInstaller` hiển thị banner cài đặt 1-chạm trên Android/Desktop và hướng dẫn Thêm vào MH chính trên iOS Safari. |
 
 ---
 
@@ -340,11 +370,13 @@ Khi bạn mở dự án này trên một máy tính hoặc tài khoản khác, t
 2. **Kiểm tra trạng thái mã nguồn:**
    ```bash
    npm run lint     # Đảm bảo 0 lỗi
-   npm run build    # Đảm bảo build thành công 100%
+   npx tsc --noEmit # Đảm bảo 0 lỗi TypeScript
+   npm run test:validation # Chạy bộ kiểm thử tự động (8/8 ca passed)
    ```
 3. **Kiểm tra các tính năng trên trình duyệt:**
    - **`ADMIN`:**
      - Mở tab **Thời khóa biểu**: Kiểm tra lớp học bù xuất hiện trên TKB tuần & tháng với badge tím `[⚡ LỚP BÙ]`, click vào xem chi tiết lớp bù và học sinh.
+     - Mở tab **Quản lý nhân sự**: Kiểm tra nút Bàn giao lớp `[ 🔄 Bàn Giao Lớp ]` mở modal `StaffClassTransferModal`, cấp/hủy quyền đăng nhập, reset mật khẩu.
      - Mở tab **Lớp học bù**:
        - Bấm `[ Khảo Sát Lịch Rảnh PH ]`: Soạn tin nhắn mẫu tùy chỉnh, xem live preview và gửi hàng loạt.
        - Tạo/Sửa lớp bù: Chọn lớp mục tiêu cụ thể (`targetClassId`) hoặc ghép liên lớp, chỉnh số giờ dạy.
@@ -353,11 +385,13 @@ Khi bạn mở dự án này trên một máy tính hoặc tài khoản khác, t
        - Bấm `[ 📝 Gửi Nội Dung Cho PH ]`: Trợ giảng/GV nhập nội dung, bài tập và nhận xét gửi cho phụ huynh.
      - Mở tab **Quản lý học phí**: Kiểm tra tính toán theo lớp, tách bạch Phụ thu/Giảm trừ, thu gộp nợ nhiều tháng, in phiếu thu.
      - Mở tab **Bảng công & Lương**: Kiểm tra quy trình 4 bước, nút tự động tính lại giờ.
+   - **`ASSISTANT`:**
+     - Mở tab **Điểm danh 1-chạm**: Điểm danh đầu giờ, kiểm tra tính năng "Tự động gửi báo cáo điểm danh vào nhóm Zalo lớp" khi bấm Lưu điểm danh.
    - **`PARENT`:**
-     - Mở tab **Sổ liên lạc hôm nay**: Kiểm tra card Lịch học bù trong tháng hiển thị nổi bật kèm báo cáo chi tiết từ Trợ giảng (Nội dung đã học, Dặn dò, Nhận xét của con).
+     - Mở tab **Sổ liên lạc hôm nay**: Kiểm tra card Lịch học bù trong tháng hiển thị nổi bật kèm báo cáo chi tiết từ Trợ giảng (Nội dung đã học, Dặn dò, Nhận xét của con), Hộp thư Zalo & thông báo từ trung tâm, nộp BTVN đính kèm tệp máy tính/điện thoại thật.
 4. **Quản lý dữ liệu LocalStorage:**
-   - Dữ liệu demo nằm trong key `ms_dung_shiny_center_data_v17`.
-   - Muốn reset về dữ liệu ban đầu: Mở Developer Tools (F12) $\rightarrow$ Application $\rightarrow$ Local Storage $\rightarrow$ Xóa key `ms_dung_shiny_center_data_v17` và F5.
+   - Dữ liệu chuẩn sạch nằm trong key `ms_dung_shiny_center_data_v23_clean` (tự động nhận diện và nâng cấp từ `ms_dung_shiny_center_data_v22`).
+   - Muốn reset về dữ liệu ban đầu: Mở Developer Tools (F12) $\rightarrow$ Application $\rightarrow$ Local Storage $\rightarrow$ Xóa key `ms_dung_shiny_center_data_v23_clean` và F5.
 
 ---
 

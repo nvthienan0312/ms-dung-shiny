@@ -196,6 +196,10 @@ export default function ZaloBatchQueueModal({
     }
   };
 
+  // Tham chiếu hàm gửi để tránh stale closure và thỏa mãn react-hooks/exhaustive-deps
+  const executeSendItemRef = useRef(executeSendItem);
+  executeSendItemRef.current = executeSendItem;
+
   // Vòng lặp đếm ngược của hàng đợi
   useEffect(() => {
     if (!isRunning) {
@@ -208,7 +212,7 @@ export default function ZaloBatchQueueModal({
         setCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(timerRef.current as any);
-            executeSendItem(currentIndex);
+            executeSendItemRef.current(currentIndex);
             return 0;
           }
           return prev - 1;
