@@ -26,6 +26,28 @@ export function isValidZaloPhone(phone: string): boolean {
 }
 
 /**
+ * Tạo khóa định danh Bot Zalo ĐỘC LẬP cho từng tài khoản người dùng (không dùng chung giữa các giáo viên/trợ giảng).
+ */
+export function buildZaloAccountKey(params: {
+  role?: string;
+  staffId?: string;
+  phone?: string;
+  userId?: string;
+}): string {
+  const roleUpper = (params.role || "ADMIN").toUpperCase();
+  if (roleUpper === "ADMIN") {
+    return "admin";
+  }
+  const cleanPhone = cleanPhoneNumber(params.phone || "");
+  const rawId = cleanPhone || params.staffId || params.userId || "unknown";
+  const safeId = String(rawId)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `${roleUpper.toLowerCase()}_${safeId || "unknown"}`;
+}
+
+/**
  * Định dạng số điện thoại hiển thị đẹp mắt (0964.645.174)
  */
 export function formatDisplayPhone(phone: string): string {
@@ -33,7 +55,7 @@ export function formatDisplayPhone(phone: string): string {
   if (cleaned.length === 10) {
     return `${cleaned.slice(0, 4)}.${cleaned.slice(4, 7)}.${cleaned.slice(7)}`;
   }
-  return phone || "0964.645.174";
+  return phone || "";
 }
 
 /**
@@ -137,32 +159,51 @@ export async function sendZaloOAServiceMessage(
 export async function sendDirectAutoZaloMessage(
   phone: string,
   message: string,
-  accountName?: string,
-  openWindow: boolean = false
-): Promise<{ success: boolean; messageId: string; sentAt: string }> {
-  // 1. Thử gửi trực tiếp qua API Zalo Server
+  _accountName?: string,
+  openWindow: boolean = false,
+  options?: {
+    accountId?: string;
+    senderRole?: string;
+    senderPhone?: string;
+  }
+): Promise<{ success: boolean; messageId: string; sentAt: string; error?: string; needsZaloLogin?: boolean }> {
+  let apiError = "";
+  let needsZaloLogin = false;
+
+  // 1. Thử gửi trực tiếp qua API Zalo Server đúng Bot của tài khoản gửi
   try {
     const res = await fetch("/api/zalo/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, message }),
+      body: JSON.stringify({
+        phone,
+        message,
+        accountId: options?.accountId,
+        senderRole: options?.senderRole,
+        senderPhone: options?.senderPhone,
+      }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) {
-        return {
-          success: true,
-          messageId: `zmsg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          sentAt: new Date().toISOString(),
-        };
-      }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.success) {
+      return {
+        success: true,
+        messageId: `zmsg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        sentAt: new Date().toISOString(),
+      };
     }
-  } catch (err) {
-    // API server có thể chưa chạy hoặc trong chế độ static
+    apiError = data?.error || data?.message || "";
+    needsZaloLogin = Boolean(data?.needsZaloLogin);
+  } catch (err: any) {
+    apiError = err?.message || "";
   }
 
-  // 2. Kích hoạt Bridge gửi tự động qua Extension (autoSend: true)
-  if (typeof window !== "undefined") {
+  // 2. Chỉ dùng Extension Bridge nếu người dùng thực sự đã cài Extension Zalo Bridge
+  const hasExtensionBridge =
+    typeof window !== "undefined" &&
+    (Boolean((window as any).__MS_DUNG_ZALO_EXTENSION_INSTALLED__) ||
+      document.documentElement.getAttribute("data-ms-dung-zalo-bridge") === "active");
+
+  if (hasExtensionBridge && typeof window !== "undefined") {
     try {
       window.dispatchEvent(
         new CustomEvent("MS_DUNG_ZALO_DISPATCH", {
@@ -177,26 +218,28 @@ export async function sendDirectAutoZaloMessage(
         "ms_dung_zalo_pending_msg",
         JSON.stringify({ phone, message, timestamp: Date.now(), autoSend: true })
       );
-    } catch (e) {
-      console.warn("Could not dispatch event to Zalo Extension Bridge:", e);
-    }
-
-    // Sao chép ngầm vào clipboard làm phương án dự phòng
-    await copyTextToClipboard(message);
-
-    if (openWindow) {
-      const url = getZaloChatUrl(phone);
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
+      await copyTextToClipboard(message);
+      if (openWindow) {
+        const url = getZaloChatUrl(phone);
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      return {
+        success: true,
+        messageId: `zmsg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        sentAt: new Date().toISOString(),
+      };
+    } catch (_e) {}
   }
-  
-  const now = new Date().toISOString();
-  const messageId = `zmsg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-  
+
+  // Không tự động mở chat.zalo.me (tránh bật màn hình đăng nhập Zalo Web ngoài ý muốn)
   return {
-    success: true,
-    messageId,
-    sentAt: now,
+    success: false,
+    messageId: "",
+    sentAt: new Date().toISOString(),
+    needsZaloLogin,
+    error:
+      apiError ||
+      "Bot Zalo của bạn chưa đăng nhập hoặc chưa tìm thấy tài khoản nhận. Vui lòng quét mã QR trong mục Quản lý Zalo.",
   };
 }
 

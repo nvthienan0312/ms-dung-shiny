@@ -16,7 +16,7 @@ import {
   CheckCircle2,
   AlertTriangle
 } from "lucide-react";
-import { copyTextToClipboard, formatDisplayPhone } from "@/utils/zaloHelper";
+import { buildZaloAccountKey, copyTextToClipboard, formatDisplayPhone } from "@/utils/zaloHelper";
 
 export interface EditZaloMessageModalProps {
   isOpen: boolean;
@@ -32,6 +32,8 @@ export interface EditZaloMessageModalProps {
   initialGroupUrl?: string;
   initialGroupId?: string;
   senderRole?: "ADMIN" | "TEACHER" | "ASSISTANT";
+  senderStaffId?: string;
+  senderPhone?: string;
   onSend: (editedContent: string, groupUrl?: string, groupId?: string) => void;
 }
 
@@ -49,6 +51,8 @@ export default function EditZaloMessageModal({
   initialGroupUrl = "",
   initialGroupId = "",
   senderRole = "TEACHER",
+  senderStaffId,
+  senderPhone,
   onSend,
 }: EditZaloMessageModalProps) {
   const [content, setContent] = useState<string>(initialContent);
@@ -57,6 +61,12 @@ export default function EditZaloMessageModal({
   const [botGroups, setBotGroups] = useState<Array<{ id: string; groupId: string; name: string }>>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+
+  const accountKey = buildZaloAccountKey({
+    role: senderRole,
+    staffId: senderStaffId,
+    phone: senderPhone,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -67,18 +77,23 @@ export default function EditZaloMessageModal({
 
       if (isClassGroup) {
         setIsLoadingGroups(true);
-        // Tải danh sách nhóm Zalo của bot đang kết nối để người dùng chọn hoặc tự động khớp
-        fetch(`/api/zalo/contacts?role=${senderRole}&account=${senderRole.toLowerCase()}`)
+        // Chỉ tải danh sách nhóm của đúng tài khoản Bot đang gửi (không dùng chung giữa các tài khoản)
+        const query = new URLSearchParams({
+          role: senderRole,
+          account: accountKey,
+          phone: senderPhone || "",
+        });
+        fetch(`/api/zalo/contacts?${query.toString()}`)
           .then((res) => (res.ok ? res.json() : { groups: [] }))
           .then((data) => {
             const groups: Array<{ id: string; groupId: string; name: string }> = data.groups || [];
             setBotGroups(groups);
 
-            // Tự động khớp nhóm theo tên lớp nếu chưa có selectedGroupId
-            if (!initialGroupId && className && groups.length > 0) {
+            // Chỉ tự chọn theo tên lớp nếu CHƯA có cả initialGroupId lẫn initialGroupUrl (tránh ghi đè link nhóm lớp đã điền!)
+            if (!initialGroupId && !initialGroupUrl?.trim() && className && groups.length > 0) {
+              const targetNorm = className.toLowerCase().trim();
               const matched = groups.find(
-                (g) =>
-                  (g.name && className && (g.name.toLowerCase().includes(className.toLowerCase()) || className.toLowerCase().includes(g.name.toLowerCase())))
+                (g) => g.name && g.name.toLowerCase().trim() === targetNorm
               );
               if (matched) {
                 setSelectedGroupId(matched.groupId || matched.id);
@@ -89,7 +104,7 @@ export default function EditZaloMessageModal({
           .finally(() => setIsLoadingGroups(false));
       }
     }
-  }, [isOpen, initialContent, initialGroupUrl, initialGroupId, isClassGroup, className, senderRole]);
+  }, [isOpen, initialContent, initialGroupUrl, initialGroupId, isClassGroup, className, senderRole, accountKey, senderPhone]);
 
   if (!isOpen) return null;
 

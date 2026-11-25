@@ -64,7 +64,12 @@ export default function TuitionManager() {
     markMultiMonthTuitionPaid,
     autoTriggerMonthlyTuition,
     renderZaloTemplate,
+    userAccounts,
   } = useCenter();
+
+  const adminAccount = userAccounts.find((a) => a.role === "ADMIN");
+  const adminSenderName = adminAccount?.name || "Chủ Trung Tâm";
+  const adminSenderPhone = adminAccount?.phone || "";
 
   // Filters
   const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentBillingMonth());
@@ -2358,8 +2363,8 @@ export default function TuitionManager() {
           showToast(`🎉 Đã hoàn thành gửi tự động Zalo cho ${count} phụ huynh học sinh!`);
         }}
         senderRole="ADMIN"
-        senderName="Ms. Dung (Hotline Trung Tâm)"
-        senderPhone="0964645174"
+        senderName={adminSenderName}
+        senderPhone={adminSenderPhone}
       />
 
       {/* MODAL CHỈNH SỬA TIN NHẮN ZALO TRƯỚC KHI GỬI (ĐƠN LẺ) */}

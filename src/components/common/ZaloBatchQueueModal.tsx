@@ -18,7 +18,7 @@ import {
   ExternalLink,
   Info
 } from "lucide-react";
-import { cleanPhoneNumber, formatDisplayPhone, copyToClipboardAndOpenZalo, copyTextToClipboard } from "@/utils/zaloHelper";
+import { buildZaloAccountKey, formatDisplayPhone, copyTextToClipboard } from "@/utils/zaloHelper";
 
 export interface ZaloQueueItem {
   id: string;
@@ -32,6 +32,7 @@ export interface ZaloQueueItem {
   content: string;
   isFriended?: boolean;
   status: "PENDING" | "SENDING" | "SENT" | "SKIPPED" | "FAILED";
+  errorReason?: string;
   sentAt?: string;
 }
 
@@ -43,6 +44,7 @@ interface ZaloBatchQueueModalProps {
   onItemSentSuccess?: (item: ZaloQueueItem) => void;
   onAllCompleted?: (sentCount: number) => void;
   senderRole?: ZaloAccountRole;
+  senderStaffId?: string;
   senderName?: string;
   senderPhone?: string;
 }
@@ -55,8 +57,9 @@ export default function ZaloBatchQueueModal({
   onItemSentSuccess,
   onAllCompleted,
   senderRole = "ADMIN",
-  senderName = "Ms. Dung (Hotline Trung Tâm)",
-  senderPhone = "0964645174",
+  senderStaffId,
+  senderName = "Quản Trị Viên",
+  senderPhone = "",
 }: ZaloBatchQueueModalProps) {
   // Khoảng cách thời gian gửi (giây) - Mặc định 150 giây (2.5 phút)
   const [intervalSeconds, setIntervalSeconds] = useState<number>(150);
@@ -100,7 +103,7 @@ export default function ZaloBatchQueueModal({
   const totalEligible = eligibleItems.length;
   const progressPercent = totalEligible > 0 ? Math.round((sentCount / totalEligible) * 100) : 0;
 
-  // Thực hiện gửi tin nhắn cho học sinh hiện tại
+  // Thực hiện gửi tin nhắn cho học sinh hiện tại bằng đúng Bot của người gửi
   const executeSendItem = async (index: number) => {
     if (index >= eligibleItems.length) {
       setIsRunning(false);
@@ -113,33 +116,42 @@ export default function ZaloBatchQueueModal({
 
     // Cập nhật trạng thái đang gửi
     setQueueItems((prev) =>
-      prev.map((i) => (i.id === currentItem.id ? { ...i, status: "SENDING" } : i))
+      prev.map((i) => (i.id === currentItem.id ? { ...i, status: "SENDING", errorReason: undefined } : i))
     );
 
-    // 1. Thử gửi tự động qua API bot server (zca-js)
+    const accountKey = buildZaloAccountKey({
+      role: senderRole,
+      staffId: senderStaffId,
+      phone: senderPhone,
+    });
+
+    // 1. Thử gửi tự động qua đúng API bot server (zca-js) của người gửi
     let realApiSent = false;
+    let errorReason = "";
     try {
       const apiRes = await fetch("/api/zalo/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          phone: currentItem.parentPhone, 
+        body: JSON.stringify({
+          phone: currentItem.parentPhone,
           message: currentItem.content,
           senderRole: senderRole,
           senderPhone: senderPhone,
-          accountId: (senderRole || "admin").toLowerCase(),
+          accountId: accountKey,
         }),
       });
-      if (apiRes.ok) {
-        const apiData = await apiRes.json();
-        if (apiData.success) {
-          realApiSent = true;
-        }
+      const apiData = await apiRes.json().catch(() => ({}));
+      if (apiRes.ok && apiData?.success) {
+        realApiSent = true;
+      } else {
+        errorReason = apiData?.error || apiData?.message || "Bot Zalo chưa kết nối hoặc không gửi được";
       }
-    } catch (_err) {}
+    } catch (err: any) {
+      errorReason = err?.message || "Lỗi kết nối máy chủ Zalo";
+    }
 
-    // 2. Kích hoạt Bridge gửi tự động qua Extension (autoSend: true)
-    if (!realApiSent && typeof window !== "undefined") {
+    // 2. Chỉ fallback sang Extension Bridge nếu extension thực sự được cài đặt trên trình duyệt
+    if (!realApiSent && isExtensionActive && typeof window !== "undefined") {
       try {
         window.dispatchEvent(
           new CustomEvent("MS_DUNG_ZALO_DISPATCH", {
@@ -163,11 +175,23 @@ export default function ZaloBatchQueueModal({
             autoSend: true,
           })
         );
+        realApiSent = true;
       } catch (_e) {}
     }
 
-    // Sao chép ngầm clipboard làm phương án an toàn
-    await copyTextToClipboard(currentItem.content);
+    // Sao chép dự phòng vào clipboard nếu lỗi để thầy cô có thể dán tay nếu cần
+    if (!realApiSent) {
+      await copyTextToClipboard(currentItem.content);
+      setQueueItems((prev) =>
+        prev.map((i) =>
+          i.id === currentItem.id
+            ? { ...i, status: "FAILED", errorReason: errorReason || "Chưa kết nối Bot Zalo" }
+            : i
+        )
+      );
+      setIsRunning(false);
+      return;
+    }
 
     const nowIso = new Date().toISOString();
     const updatedItem: ZaloQueueItem = {
@@ -184,10 +208,9 @@ export default function ZaloBatchQueueModal({
       onItemSentSuccess(updatedItem);
     }
 
-    // Nếu còn bé tiếp theo -> Bắt đầu đếm ngược với độ trễ 2-3 phút kèm dao động ngẫu nhiên (chống robot pattern)
+    // Nếu còn bé tiếp theo -> Bắt đầu đếm ngược với độ trễ 2-3 phút kèm dao động ngẫu nhiên
     if (index + 1 < eligibleItems.length) {
       setCurrentIndex(index + 1);
-      // Giãn cách thông minh: biến thiên ngẫu nhiên -5s đến +5s quanh mốc cài đặt (2-3 phút)
       const jitter = intervalSeconds > 20 ? Math.floor(Math.random() * 11) - 5 : 0;
       setCountdown(Math.max(10, intervalSeconds + jitter));
     } else {
@@ -393,26 +416,19 @@ export default function ZaloBatchQueueModal({
             </div>
           </div>
 
-          {/* TRẠNG THÁI TIỆN ÍCH EXTENSION ZALO BRIDGE */}
+          {/* TRẠNG THÁI KÊNH GỬI ZALO BOT */}
           <div className="p-3 rounded-xl border border-blue-100 bg-blue-50/50 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className={`w-2.5 h-2.5 rounded-full ${isExtensionActive ? "bg-emerald-500" : "bg-blue-500"}`}></span>
               <span className="font-bold text-slate-800 text-[11px]">
-                Chế Độ Tự Động Gửi Zalo (Auto-Send Không Cần Ctrl+V):
+                Kênh Gửi Bot Zalo Độc Lập ({senderRole}):
               </span>
               <span className="text-slate-600 text-[11px]">
                 {isExtensionActive
-                  ? "✅ Tiện ích Zalo Bridge đang hoạt động (Tự động gửi trực tiếp)"
-                  : "⚡ Gửi tự động qua Cổng Zalo Bot & Extension Bridge (Không cần Ctrl+V)"}
+                  ? "✅ Extension Zalo Bridge sẵn sàng hỗ trợ"
+                  : `Gửi trực tiếp qua Bot Zalo riêng của ${senderName}${senderPhone ? ` (${senderPhone})` : ""}`}
               </span>
             </div>
-            <button
-              onClick={() => window.open("https://chat.zalo.me", "_blank", "noopener,noreferrer")}
-              className="text-blue-700 hover:text-blue-900 font-bold text-[11px] underline flex items-center gap-1 shrink-0"
-            >
-              <span>Mở Zalo Web</span>
-              <ExternalLink className="w-3 h-3" />
-            </button>
           </div>
 
           {/* TIẾN ĐỘ VÀ BẢNG ĐIỀU KHIỂN HÀNG ĐỢI */}
@@ -575,6 +591,8 @@ export default function ZaloBatchQueueModal({
                       ? "bg-blue-50 border-blue-300 font-semibold shadow-2xs"
                       : item.status === "SENT"
                       ? "bg-emerald-50/60 border-emerald-200 text-emerald-900"
+                      : item.status === "FAILED"
+                      ? "bg-rose-50/70 border-rose-200 text-rose-900"
                       : item.status === "SKIPPED"
                       ? "bg-slate-100 border-slate-200 text-slate-400 line-through"
                       : "bg-white border-slate-200 text-slate-700"
@@ -584,14 +602,28 @@ export default function ZaloBatchQueueModal({
                     <span className="text-[10px] font-mono font-bold w-5 text-slate-400 text-center">
                       #{idx + 1}
                     </span>
-                    <span className="font-bold truncate max-w-[130px]">{item.studentName}</span>
-                    <span className="text-slate-500 font-mono text-[11px]">{item.parentPhone}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold truncate max-w-[130px]">{item.studentName}</span>
+                        <span className="text-slate-500 font-mono text-[11px]">{item.parentPhone}</span>
+                      </div>
+                      {item.status === "FAILED" && item.errorReason && (
+                        <div className="text-[10px] text-rose-700 truncate max-w-[260px]" title={item.errorReason}>
+                          ⚠️ {item.errorReason}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
                     {item.status === "SENT" && (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                         ✓ Đã gửi
+                      </span>
+                    )}
+                    {item.status === "FAILED" && (
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
+                        ✗ Gửi lỗi
                       </span>
                     )}
                     {item.status === "SENDING" && (

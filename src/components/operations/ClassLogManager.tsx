@@ -1335,6 +1335,8 @@ export default function ClassLogManager({
           initialGroupUrl={currentClass?.zaloGroupUrl || ""}
           initialGroupId={currentClass?.zaloGroupId || ""}
           senderRole={(userRole as any) || "TEACHER"}
+          senderStaffId={currentStaffId || activeStaff.id}
+          senderPhone={activeStaff.phone}
           onSend={handleConfirmSendEditedZalo}
         />
       )}
@@ -1349,7 +1351,9 @@ export default function ClassLogManager({
           setToastMessage(`🎉 Hoàn thành gửi tự động Nhật ký & BTVN tới ${count} phụ huynh lớp ${currentClass?.name || ""} qua Zalo!`);
         }}
         senderRole={(userRole as any) || "TEACHER"}
+        senderStaffId={currentStaffId || activeStaff.id}
         senderName={effectiveTeacher}
+        senderPhone={activeStaff.phone}
       />
     </div>
   );

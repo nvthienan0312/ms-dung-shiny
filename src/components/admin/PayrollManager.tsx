@@ -40,8 +40,13 @@ export default function PayrollManager() {
     updateStaffTimesheet, 
     recalculateStaffTimesheetHours, 
     sendTimesheetToStaff,
-    sendZaloMessageToParent
+    sendZaloMessageToParent,
+    userAccounts,
   } = useCenter();
+
+  const adminAccount = userAccounts.find((a) => a.role === "ADMIN");
+  const adminSenderName = adminAccount?.name || "Chủ Trung Tâm";
+  const adminSenderPhone = adminAccount?.phone || "";
 
   // Filters
   const [selectedMonth, setSelectedMonth] = useState<string>("Tháng 10/2026");
@@ -190,8 +195,8 @@ export default function PayrollManager() {
       title: editZaloModal.title,
       content: finalMessage,
       senderRole: "ADMIN",
-      senderName: "Ms. Dung (Hotline Trung Tâm)",
-      senderPhone: "0964645174",
+      senderName: adminSenderName,
+      senderPhone: adminSenderPhone,
       openChatWindow: false,
     });
     if (res.success) {
@@ -1276,8 +1281,8 @@ export default function PayrollManager() {
           showToast(`✓ Đã hoàn tất phiên gửi hàng đợi Zalo bảng lương cho ${count} nhân sự!`);
         }}
         senderRole="ADMIN"
-        senderName="Ms. Dung (Hotline Trung Tâm)"
-        senderPhone="0964645174"
+        senderName={adminSenderName}
+        senderPhone={adminSenderPhone}
       />
     </div>
   );

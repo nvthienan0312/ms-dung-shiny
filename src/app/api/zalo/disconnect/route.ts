@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const { accountId, role, phone } = body;
     const bot = multiZaloBotManager.getBotInstance(accountId, role, phone);
-    const res = bot.disconnect();
+    const res = await bot.disconnect();
 
     return NextResponse.json(res);
   } catch (error: any) {

@@ -79,7 +79,9 @@ import {
   generateMakeupNoticeZaloMessage,
   generateMakeupSessionReportZaloMessage,
   generateStudentSessionRemarkZaloMessage,
-  cleanPhoneNumber 
+  cleanPhoneNumber,
+  buildZaloAccountKey,
+  formatDisplayPhone,
 } from "@/utils/zaloHelper";
 import { getTodayDateString, isMakeupClassPast } from "@/utils/dateHelper";
 
@@ -298,6 +300,7 @@ interface CenterContextType {
   login: (phone: string, password?: string, selectedRole?: UserRole) => { success: boolean; message: string; user?: UserAccount };
   logout: () => void;
   changeAdminPassword: (oldPass: string, newPass: string) => { success: boolean; message: string };
+  updateAdminProfile: (updates: { name: string; phone: string }) => { success: boolean; message: string };
   toggleUserAccountPermission: (accountId: string, isAllowed: boolean) => void;
   setParentAccountPermissionByStudent: (studentId: string, isAllowed: boolean) => void;
   toggleAllParentPermissions: (isAllowed: boolean) => void;
@@ -3076,10 +3079,11 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       setZaloOAConfig((prev) => ({ ...prev, quotaRemaining: res.quotaRemaining }));
 
       // Ghi nhật ký tin nhắn
+      const adminAccForOa = userAccounts.find((a) => a.role === "ADMIN");
       addZaloMessageLog({
         senderRole: "ADMIN",
-        senderName: zaloOAConfig.oaName || "Ms. Dung Shiny English Center (Zalo OA)",
-        senderPhone: "0964645174",
+        senderName: zaloOAConfig.oaName || `${adminAccForOa?.name || "Ms. Dung Shiny"} (Zalo OA)`,
+        senderPhone: adminAccForOa?.phone || "0964645174",
         senderAccountType: "CENTER_HOTLINE",
         recipientName: params.recipientName,
         recipientPhone: params.recipientPhone,
@@ -3153,7 +3157,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     }
     
     // Hotline & thông tin ngân hàng mặc định
-    if (!tokens.hotline) tokens.hotline = "0964.645.174";
+    const adminAccForTpl = userAccounts.find((a) => a.role === "ADMIN");
+    const adminHotlineFormatted = adminAccForTpl?.phone ? formatDisplayPhone(adminAccForTpl.phone) : "0964.645.174";
+    if (!tokens.hotline) tokens.hotline = adminHotlineFormatted;
     if (!tokens.bankInfo) tokens.bankInfo = "MB Bank | STK: 0964645174 | NGUYEN THI DUNG";
 
     // 2. Thay thế toàn bộ token {token}
@@ -3220,7 +3226,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     const token = `zalo-shk-${role.toLowerCase()}-${Date.now()}`;
     const nowIso = new Date().toISOString();
     const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const name = accountName || (role === "ADMIN" ? "Ms. Dung Shiny (Hotline)" : role === "TEACHER" ? "Giáo Viên Tiếng Anh" : "Trợ Giảng Shiny");
+    const adminAccForVerify = userAccounts.find((a) => a.role === "ADMIN");
+    const name = accountName || (role === "ADMIN" ? (adminAccForVerify?.name || "Quản Trị Viên") : role === "TEACHER" ? "Giáo Viên" : "Trợ Giảng");
 
     setZaloSessions((prev) => ({
       ...prev,
@@ -3235,28 +3242,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       },
     }));
 
-    if (typeof window !== "undefined") {
-      try {
-        window.dispatchEvent(
-          new CustomEvent("MS_DUNG_ZALO_HANDSHAKE", {
-            detail: {
-              role,
-              phoneNumber,
-              accountName: name,
-              token,
-              expiresAt: expiresIso,
-            },
-          })
-        );
-        window.open("https://chat.zalo.me", "_blank", "noopener,noreferrer");
-      } catch (e) {
-        console.warn("Handshake event dispatch failed:", e);
-      }
-    }
-
     return {
       success: true,
-      message: `Đã xác thực và kết nối phiên Zalo Web thành công cho ${name} (${phoneNumber}). Phiên làm việc có hiệu lực trong 24 giờ.`,
+      message: `Đã lưu thông tin Zalo cho ${name} (${phoneNumber}).`,
     };
   };
 
@@ -3273,152 +3261,142 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: "Không tìm thấy thông tin lớp học." };
     }
 
-    // Nếu người dùng chọn groupId mới hoặc nhập link nhóm Zalo mới
-    let effectiveGroupUrl = overrideGroupUrl?.trim() || cls.zaloGroupUrl?.trim() || "";
-    let effectiveGroupId = overrideGroupId?.trim() || cls.zaloGroupId?.trim();
+    const effectiveGroupUrl = overrideGroupUrl?.trim() || cls.zaloGroupUrl?.trim() || "";
+    const effectiveGroupId = overrideGroupId?.trim() || cls.zaloGroupId?.trim() || "";
 
     if (
       (overrideGroupUrl && overrideGroupUrl.trim() && overrideGroupUrl.trim() !== cls.zaloGroupUrl) ||
       (overrideGroupId && overrideGroupId.trim() && overrideGroupId.trim() !== cls.zaloGroupId)
     ) {
-      updateClass(classId, { 
+      updateClass(classId, {
         zaloGroupUrl: effectiveGroupUrl,
-        zaloGroupId: effectiveGroupId
+        zaloGroupId: effectiveGroupId || undefined,
       });
     }
 
-    // Kiểm tra tính hợp lệ của link nhóm: loại bỏ các link giả định/dummy
     const isDummyUrl =
       !effectiveGroupUrl ||
       effectiveGroupUrl.includes("shinystar01") ||
       effectiveGroupUrl === "https://zalo.me" ||
       (cls.code ? effectiveGroupUrl.endsWith("/g/" + cls.code.toLowerCase()) : false);
 
-    const targetUrl = !isDummyUrl && (effectiveGroupUrl.startsWith("http://") || effectiveGroupUrl.startsWith("https://"))
-      ? effectiveGroupUrl
-      : "https://chat.zalo.me";
+    const validGroupUrl =
+      !isDummyUrl && (effectiveGroupUrl.startsWith("http://") || effectiveGroupUrl.startsWith("https://"))
+        ? effectiveGroupUrl
+        : "";
 
-    let resolvedRole: ZaloAccountRole = senderRole || (
-      currentUserAccount?.role === "ASSISTANT" 
-        ? "ASSISTANT" 
-        : currentUserAccount?.role === "ADMIN" 
-        ? "ADMIN" 
-        : "TEACHER"
-    );
-    let resolvedSenderName = cls.teacherName || "Giáo Viên Lớp";
-    let resolvedSenderPhone = "0901 234 567";
+    const resolvedRole: ZaloAccountRole =
+      senderRole ||
+      (currentUserAccount?.role === "ASSISTANT"
+        ? "ASSISTANT"
+        : currentUserAccount?.role === "ADMIN"
+        ? "ADMIN"
+        : "TEACHER");
 
-    const staffObj = staff.find((s) => s.id === senderStaffId || s.fullName === cls.teacherName);
-    if (staffObj) {
-      resolvedSenderName = staffObj.fullName;
-      resolvedSenderPhone = staffObj.phone;
+    const adminAcc = userAccounts.find((a) => a.role === "ADMIN");
+    const staffObj =
+      resolvedRole === "ADMIN"
+        ? undefined
+        : staff.find(
+            (s) =>
+              (senderStaffId && s.id === senderStaffId) ||
+              (currentUserAccount?.staffId && s.id === currentUserAccount.staffId) ||
+              (currentUserAccount?.phone && cleanPhoneNumber(s.phone) === cleanPhoneNumber(currentUserAccount.phone))
+          );
+
+    const resolvedSenderName =
+      resolvedRole === "ADMIN"
+        ? adminAcc?.name || currentUserAccount?.name || "Quản Trị Viên"
+        : staffObj?.fullName || currentUserAccount?.name || (resolvedRole === "TEACHER" ? "Giáo Viên" : "Trợ Giảng");
+
+    const resolvedSenderPhone =
+      resolvedRole === "ADMIN"
+        ? adminAcc?.phone || currentUserAccount?.phone || ""
+        : staffObj?.phone || currentUserAccount?.phone || "";
+
+    const senderAccountKey = buildZaloAccountKey({
+      role: resolvedRole,
+      staffId: staffObj?.id || senderStaffId || currentUserAccount?.staffId,
+      phone: resolvedSenderPhone,
+      userId: currentUserAccount?.id,
+    });
+
+    if (!messageText || !messageText.trim()) {
+      return { success: false, message: "Nội dung tin nhắn nhóm lớp không được để trống.", zaloGroupUrl: validGroupUrl };
+    }
+
+    if (!effectiveGroupId && !validGroupUrl) {
+      return {
+        success: false,
+        message: `Lớp "${cls.name}" chưa gắn link nhóm Zalo hợp lệ. Vui lòng dán link nhóm Zalo (zalo.me/g/...) hoặc chọn nhóm từ Bot trước khi gửi.`,
+      };
     }
 
     let realApiSent = false;
-    let resolvedGroupId: string | undefined = effectiveGroupId;
+    let apiError = "";
 
-    if (messageText) {
-      // 1. Nếu chưa có resolvedGroupId, tra cứu danh bạ nhóm của bot (ưu tiên bot của vai trò, fallback sang bot Admin)
-      if (!resolvedGroupId) {
-        try {
-          const contactsRes = await fetch(`/api/zalo/contacts?role=${resolvedRole}&account=${resolvedRole.toLowerCase()}`);
-          if (contactsRes.ok) {
-            const contactsData = await contactsRes.json();
-            const groups: Array<{ id?: string; groupId?: string; name: string }> = contactsData.groups || [];
-            const matched = groups.find(
-              (g) =>
-                (g.name && cls.name && (g.name.toLowerCase().includes(cls.name.toLowerCase()) || cls.name.toLowerCase().includes(g.name.toLowerCase()))) ||
-                (cls.code && g.name && g.name.toLowerCase().includes(cls.code.toLowerCase()))
-            );
-            if (matched) resolvedGroupId = matched.groupId || matched.id;
-          }
-        } catch (_ce) {}
-
-        // Fallback tra cứu qua bot Admin nếu bot riêng chưa vào nhóm
-        if (!resolvedGroupId && resolvedRole !== "ADMIN") {
-          try {
-            const adminContactsRes = await fetch(`/api/zalo/contacts?role=ADMIN&account=admin`);
-            if (adminContactsRes.ok) {
-              const adminData = await adminContactsRes.json();
-              const groups: Array<{ id?: string; groupId?: string; name: string }> = adminData.groups || [];
-              const matched = groups.find(
-                (g) =>
-                  (g.name && cls.name && (g.name.toLowerCase().includes(cls.name.toLowerCase()) || cls.name.toLowerCase().includes(g.name.toLowerCase()))) ||
-                  (cls.code && g.name && g.name.toLowerCase().includes(cls.code.toLowerCase()))
-              );
-              if (matched) resolvedGroupId = matched.groupId || matched.id;
-            }
-          } catch (_ae) {}
-        }
-      }
-
-      // 2. Bắn trực tiếp vào nhóm Zalo qua API bot
-      try {
-        const apiRes = await fetch("/api/zalo/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            groupId: resolvedGroupId, 
-            groupUrl: targetUrl, 
-            groupName: cls.name,
-            className: cls.name,
-            message: messageText,
-            senderRole: resolvedRole,
-            senderPhone: resolvedSenderPhone,
-            accountId: resolvedRole.toLowerCase()
-          }),
-        });
-        if (apiRes.ok) {
-          const apiData = await apiRes.json();
-          if (apiData.success) {
-            realApiSent = true;
-            console.log("[ZALO 1-CHẠM] Tự động gửi nhóm thành công qua bot:", resolvedGroupId || targetUrl);
-          }
-        }
-      } catch (_err) {}
-
-      // Fallback duy nhất: chỉ mở Zalo Web nếu API chưa thể gửi tự động
-      if (!realApiSent) {
-        await copyToClipboardAndOpenZaloGroup(targetUrl, messageText);
-      }
-      refreshZaloSession(resolvedRole);
-
-      // Ghi nhật ký vào hệ thống
-      addZaloMessageLog({
-        senderRole: resolvedRole,
-        senderName: resolvedSenderName,
-        senderPhone: resolvedSenderPhone,
-        senderAccountType: resolvedRole === "ADMIN" ? "CENTER_HOTLINE" : "PERSONAL",
-        recipientName: `Nhóm Zalo Lớp: ${cls.name}`,
-        recipientPhone: targetUrl,
-        className: cls.name,
-        messageType: "CLASS_LOG",
-        title: `Đăng Nhóm Zalo Lớp: ${cls.name}`,
-        content: messageText,
+    try {
+      const apiRes = await fetch("/api/zalo/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId: effectiveGroupId || undefined,
+          groupUrl: validGroupUrl || undefined,
+          groupName: !effectiveGroupId && !validGroupUrl ? cls.name : undefined,
+          className: cls.name,
+          message: messageText,
+          senderRole: resolvedRole,
+          senderPhone: resolvedSenderPhone,
+          accountId: senderAccountKey,
+        }),
       });
-
-      // Cập nhật ngày giờ gửi zalo trên ClassLog
-      const todayIso = new Date().toISOString().split("T")[0];
-      const nowIso = new Date().toISOString();
-      setClassLogs((prev) =>
-        prev.map((l) =>
-          l.classId === classId && (l.dateStr === todayIso || l.status === "PUBLISHED")
-            ? { ...l, zaloSentAt: nowIso, zaloRecipientCount: cls.currentStudents || 15 }
-            : l
-        )
-      );
-    } else {
-      if (typeof window !== "undefined") {
-        window.open(targetUrl, "_blank", "noopener,noreferrer");
+      const apiData = await apiRes.json().catch(() => ({}));
+      if (apiRes.ok && apiData?.success) {
+        realApiSent = true;
+      } else {
+        apiError = apiData?.error || apiData?.message || "";
       }
+    } catch (err: any) {
+      apiError = err?.message || "Không thể kết nối máy chủ Zalo Bot.";
     }
+
+    if (!realApiSent) {
+      return {
+        success: false,
+        message:
+          apiError ||
+          `Bot Zalo của ${resolvedSenderName} chưa đăng nhập hoặc chưa tìm thấy nhóm Zalo lớp "${cls.name}". Vui lòng quét mã QR trong mục Zalo và kiểm tra link nhóm.`,
+        zaloGroupUrl: validGroupUrl || undefined,
+      };
+    }
+
+    addZaloMessageLog({
+      senderRole: resolvedRole,
+      senderName: resolvedSenderName,
+      senderPhone: resolvedSenderPhone,
+      senderAccountType: resolvedRole === "ADMIN" ? "CENTER_HOTLINE" : "PERSONAL",
+      recipientName: `Nhóm Zalo Lớp: ${cls.name}`,
+      recipientPhone: validGroupUrl || effectiveGroupId,
+      className: cls.name,
+      messageType: "CLASS_LOG",
+      title: `Đăng Nhóm Zalo Lớp: ${cls.name}`,
+      content: messageText,
+    });
+
+    const todayIso = new Date().toISOString().split("T")[0];
+    const nowIso = new Date().toISOString();
+    setClassLogs((prev) =>
+      prev.map((l) =>
+        l.classId === classId && (l.dateStr === todayIso || l.status === "PUBLISHED")
+          ? { ...l, zaloSentAt: nowIso, zaloRecipientCount: cls.currentStudents || 15 }
+          : l
+      )
+    );
 
     return {
       success: true,
-      message: realApiSent
-        ? `✅ [TỰ ĐỘNG GỬI] Đã gửi thẳng vào Nhóm Zalo Lớp: ${cls.name} qua bot!`
-        : `⚡ [TỰ ĐỘNG GỬI] Đã kích hoạt tự động gửi bài học vào Nhóm Zalo Lớp: ${cls.name}!`,
-      zaloGroupUrl: targetUrl,
+      message: `Đã gửi trực tiếp vào Nhóm Zalo Lớp "${cls.name}" bằng tài khoản ${resolvedSenderName}!`,
+      zaloGroupUrl: validGroupUrl || undefined,
     };
   };
 
@@ -3438,101 +3416,108 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     senderPhone?: string;
     openChatWindow?: boolean;
   }): Promise<{ success: boolean; message: string; messageId: string }> => {
-    // 1. Xác định Người gửi (Sender) theo vai trò và số điện thoại
-    let resolvedRole: ZaloAccountRole = params.senderRole || (
-      currentUserAccount?.role === "TEACHER" 
-        ? "TEACHER" 
-        : currentUserAccount?.role === "ASSISTANT" 
-        ? "ASSISTANT" 
-        : "ADMIN"
-    );
-    let resolvedSenderName = params.senderName;
-    let resolvedSenderPhone = params.senderPhone;
-    let resolvedAccountType: "CENTER_HOTLINE" | "PERSONAL" = resolvedRole === "ADMIN" ? "CENTER_HOTLINE" : "PERSONAL";
+    const resolvedRole: ZaloAccountRole =
+      params.senderRole ||
+      (currentUserAccount?.role === "TEACHER"
+        ? "TEACHER"
+        : currentUserAccount?.role === "ASSISTANT"
+        ? "ASSISTANT"
+        : "ADMIN");
 
-    if (!resolvedSenderPhone || !resolvedSenderName) {
-      if (resolvedRole === "ADMIN") {
-        resolvedSenderName = "Ms. Dung Shiny (Hotline Trung Tâm)";
-        resolvedSenderPhone = "0964645174";
-        resolvedAccountType = "CENTER_HOTLINE";
-      } else {
-        const staffObj = staff.find((s) => s.id === params.senderStaffId || s.phone === currentUserAccount?.phone);
-        if (staffObj) {
-          resolvedSenderName = staffObj.fullName;
-          resolvedSenderPhone = staffObj.phone;
-        } else if (currentUserAccount) {
-          resolvedSenderName = currentUserAccount.name;
-          resolvedSenderPhone = currentUserAccount.phone;
-        } else {
-          resolvedSenderName = resolvedRole === "TEACHER" ? "Giáo Viên" : "Trợ Giảng";
-          resolvedSenderPhone = "";
-        }
-      }
-    }
+    const adminAcc = userAccounts.find((a) => a.role === "ADMIN");
+    const resolvedAccountType: "CENTER_HOTLINE" | "PERSONAL" =
+      resolvedRole === "ADMIN" ? "CENTER_HOTLINE" : "PERSONAL";
 
-    // 2. Tự động đảm bảo tài khoản Zalo của người gửi đã kích hoạt kết nối
-    const cleanSenderPhone = cleanPhoneNumber(resolvedSenderPhone);
-    setZaloAccounts((prev) => {
-      const existing = prev.find(
-        (a) => a.role === resolvedRole && (resolvedRole === "ADMIN" || cleanPhoneNumber(a.phoneNumber) === cleanSenderPhone)
-      );
-      if (existing) {
-        return prev.map((a) =>
-          a.id === existing.id
-            ? { ...a, isConnected: true, connectedAt: a.connectedAt || new Date().toISOString() }
-            : a
-        );
-      }
-      return [
-        ...prev,
-        {
-          id: `zalo-${resolvedRole.toLowerCase()}-${Date.now()}`,
-          role: resolvedRole,
-          accountType: resolvedAccountType,
-          accountName: resolvedSenderName || "Zalo Cá Nhân",
-          phoneNumber: resolvedSenderPhone || "0964645174",
-          isConnected: true,
-          connectedAt: new Date().toISOString(),
-        },
-      ];
+    const staffObj =
+      resolvedRole === "ADMIN"
+        ? undefined
+        : staff.find(
+            (s) =>
+              (params.senderStaffId && s.id === params.senderStaffId) ||
+              (params.senderPhone && cleanPhoneNumber(s.phone) === cleanPhoneNumber(params.senderPhone)) ||
+              (currentUserAccount?.staffId && s.id === currentUserAccount.staffId) ||
+              (currentUserAccount?.phone && cleanPhoneNumber(s.phone) === cleanPhoneNumber(currentUserAccount.phone))
+          );
+
+    const resolvedSenderName =
+      params.senderName ||
+      (resolvedRole === "ADMIN"
+        ? adminAcc?.name || currentUserAccount?.name || "Quản Trị Viên"
+        : staffObj?.fullName || currentUserAccount?.name || (resolvedRole === "TEACHER" ? "Giáo Viên" : "Trợ Giảng"));
+
+    const resolvedSenderPhone =
+      params.senderPhone ||
+      (resolvedRole === "ADMIN"
+        ? adminAcc?.phone || currentUserAccount?.phone || ""
+        : staffObj?.phone || currentUserAccount?.phone || "");
+
+    const senderAccountKey = buildZaloAccountKey({
+      role: resolvedRole,
+      staffId: staffObj?.id || params.senderStaffId || currentUserAccount?.staffId,
+      phone: resolvedSenderPhone,
+      userId: currentUserAccount?.id,
     });
 
-    // 3. Thực hiện gửi qua API Zalo thực (1-chạm) hoặc fallback clipboard nếu chưa kết nối bot
-    const shouldOpenWindow = params.openChatWindow !== false;
     let realApiSent = false;
+    let apiError = "";
+
     try {
       const apiRes = await fetch("/api/zalo/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          phone: params.recipientPhone, 
+        body: JSON.stringify({
+          phone: params.recipientPhone,
           message: params.content,
           senderRole: resolvedRole,
           senderPhone: resolvedSenderPhone,
-          accountId: resolvedRole.toLowerCase()
+          accountId: senderAccountKey,
         }),
       });
-      if (apiRes.ok) {
-        const apiData = await apiRes.json();
-        if (apiData.success) {
-          realApiSent = true;
-          console.log("[ZALO 1-CHẠM] Gửi thực thành công tới", params.recipientName, "(Qua bot:", resolvedRole, ")");
-        }
+      const apiData = await apiRes.json().catch(() => ({}));
+      if (apiRes.ok && apiData?.success) {
+        realApiSent = true;
+      } else {
+        apiError = apiData?.error || apiData?.message || "";
       }
-    } catch (_err) {
-      // Server-side API không khả dụng, dùng clipboard bridge
+    } catch (err: any) {
+      apiError = err?.message || "Không thể kết nối máy chủ Zalo Bot.";
     }
 
-    // Nếu API thực chưa gửi được thì dùng Clipboard + mở cửa sổ Zalo Web (Extension bridge)
+    // Chỉ dùng Extension Bridge nếu Extension được cài đặt sẵn trên trình duyệt
     if (!realApiSent) {
-      await sendDirectAutoZaloMessage(params.recipientPhone, params.content, resolvedSenderName, shouldOpenWindow);
+      const bridgeRes = await sendDirectAutoZaloMessage(
+        params.recipientPhone,
+        params.content,
+        resolvedSenderName,
+        false,
+        {
+          accountId: senderAccountKey,
+          senderRole: resolvedRole,
+          senderPhone: resolvedSenderPhone,
+        }
+      );
+      if (bridgeRes.success) {
+        realApiSent = true;
+      } else if (!apiError && bridgeRes.error) {
+        apiError = bridgeRes.error;
+      }
     }
 
-    // 4. Ghi nhận vào nhật ký tin nhắn Zalo
+    if (!realApiSent) {
+      return {
+        success: false,
+        message:
+          apiError ||
+          `Tài khoản Zalo (${resolvedSenderName}) chưa kết nối Bot hoặc không gửi được tới ${params.recipientPhone}. Vui lòng bấm biểu tượng Zalo ở góc trên để quét QR.`,
+        messageId: "",
+      };
+    }
+
+    // Chỉ ghi nhật ký khi đã gửi thành công thực sự
     const newLog = addZaloMessageLog({
       senderRole: resolvedRole,
-      senderName: resolvedSenderName || "Zalo Trung Tâm",
-      senderPhone: resolvedSenderPhone || "0964645174",
+      senderName: resolvedSenderName,
+      senderPhone: resolvedSenderPhone,
       senderAccountType: resolvedAccountType,
       recipientName: params.recipientName,
       recipientPhone: params.recipientPhone,
@@ -3545,14 +3530,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       content: params.content,
     });
 
-    // Cập nhật gia hạn phiên làm việc Zalo
-    refreshZaloSession(resolvedRole);
-
     return {
       success: true,
-      message: realApiSent
-        ? `✅ [TỰ ĐỘNG GỬI] Đã gửi trực tiếp qua Zalo tới ${params.recipientName} (${params.recipientPhone})!`
-        : `⚡ [TỰ ĐỘNG GỬI] Đã kích hoạt tự động gửi tin Zalo tới ${params.recipientName} (${params.recipientPhone})!`,
+      message: `Đã gửi trực tiếp qua Zalo (${resolvedSenderName}) tới ${params.recipientName} (${params.recipientPhone})!`,
       messageId: newLog.id,
     };
   };
@@ -3566,19 +3546,17 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: "Vui lòng nhập số điện thoại đăng nhập!" };
     }
 
-    // ==============================================================
-    // Tài khoản Quản trị viên (ADMIN): 0964645174 chỉ duy nhất có vai trò ADMIN
-    // ==============================================================
-    const adminAcc = userAccounts.find(
-      (acc) => acc.role === "ADMIN" || normalizePhoneNumber(acc.phone) === normalizePhoneNumber(ADMIN_DEFAULT_PHONE)
-    );
+    // Tài khoản Quản trị viên (ADMIN): tra cứu động từ userAccounts theo role ADMIN
+    const adminAcc =
+      userAccounts.find((acc) => acc.role === "ADMIN") ||
+      userAccounts.find((acc) => normalizePhoneNumber(acc.phone) === normalizePhoneNumber(ADMIN_DEFAULT_PHONE));
     const isAdminAttempt = adminAcc && cleanInputPhone === normalizePhoneNumber(adminAcc.phone);
 
     if (isAdminAttempt) {
       if (selectedRole && selectedRole !== "ADMIN") {
         return {
           success: false,
-          message: "Số điện thoại 0964645174 là tài khoản Quản trị viên. Bạn không thể đăng nhập với vai trò Giáo viên, Trợ giảng hay Phụ huynh!",
+          message: `Số điện thoại ${adminAcc.phone} là tài khoản Quản trị viên. Bạn không thể đăng nhập với vai trò Giáo viên, Trợ giảng hay Phụ huynh!`,
         };
       }
 
@@ -3687,7 +3665,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 5. Đăng nhập thành công (Chỉ lưu session tạm trong bộ nhớ, reload/reset web luôn quay về đăng nhập)
+    // 5. Đăng nhập thành công
     const updatedAcc: UserAccount = {
       ...targetAcc,
       lastLoginAt: new Date().toISOString(),
@@ -3711,6 +3689,81 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         console.error("Failed to clear auth session", err);
       }
     }
+  };
+
+  const updateAdminProfile = (updates: { name: string; phone: string }) => {
+    const cleanName = (updates.name || "").trim();
+    const cleanPhone = normalizePhoneNumber(updates.phone || "");
+
+    if (cleanName.length < 2) {
+      return { success: false, message: "Tên chủ trung tâm phải có ít nhất 2 ký tự!" };
+    }
+    if (cleanPhone.length < 9 || !/^[0-9]{9,11}$/.test(cleanPhone)) {
+      return { success: false, message: "Số điện thoại Admin không hợp lệ (cần 9–11 chữ số)!" };
+    }
+
+    const conflictOtherRole = userAccounts.find(
+      (a) => a.role !== "ADMIN" && normalizePhoneNumber(a.phone) === cleanPhone
+    );
+    if (conflictOtherRole) {
+      return {
+        success: false,
+        message: `Số điện thoại ${updates.phone} đang được sử dụng bởi tài khoản ${conflictOtherRole.name}. Vui lòng chọn số khác!`,
+      };
+    }
+
+    const adminAcc = userAccounts.find((a) => a.role === "ADMIN");
+    const updatedAdmin: UserAccount = adminAcc
+      ? { ...adminAcc, name: cleanName, phone: cleanPhone }
+      : {
+          id: "acc-admin-1",
+          phone: cleanPhone,
+          password: "123",
+          role: "ADMIN",
+          name: cleanName,
+          isLoginAllowed: true,
+          createdAt: new Date().toISOString(),
+          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanName)}`,
+        };
+
+    setUserAccounts((prev) => {
+      const hasAdmin = prev.some((a) => a.role === "ADMIN");
+      if (hasAdmin) {
+        return prev.map((a) => (a.role === "ADMIN" ? updatedAdmin : a));
+      }
+      return [updatedAdmin, ...prev];
+    });
+
+    setZaloAccounts((prev) =>
+      prev.map((z) =>
+        z.role === "ADMIN"
+          ? { ...z, accountName: `${cleanName} (Hotline Trung Tâm)`, phoneNumber: cleanPhone }
+          : z
+      )
+    );
+
+    setZaloSessions((prev) => ({
+      ...prev,
+      ADMIN: {
+        ...prev.ADMIN,
+        accountName: cleanName,
+        phoneNumber: cleanPhone,
+      },
+    }));
+
+    if (currentUserAccount?.role === "ADMIN" || currentUserAccount?.id === updatedAdmin.id) {
+      setCurrentUserAccount(updatedAdmin);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("ms_dung_shiny_auth_session", JSON.stringify(updatedAdmin));
+        } catch {}
+      }
+    }
+
+    return {
+      success: true,
+      message: `Đã cập nhật thông tin chủ trung tâm: ${cleanName} (${cleanPhone})!`,
+    };
   };
 
   const changeAdminPassword = (oldPass: string, newPass: string) => {
@@ -3938,6 +3991,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         changeAdminPassword,
+        updateAdminProfile,
         toggleUserAccountPermission,
         setParentAccountPermissionByStudent,
         toggleAllParentPermissions,

@@ -261,6 +261,7 @@ Trân trọng cảm ơn Ba Mẹ!`;
       return;
     }
 
+    const adminAccount = userAccounts.find((a) => a.role === "ADMIN");
     const res = await sendZaloMessageToParent({
       recipientPhone: editZaloModal.parentPhone,
       recipientName: editZaloModal.parentName,
@@ -270,8 +271,8 @@ Trân trọng cảm ơn Ba Mẹ!`;
       title: editZaloModal.title,
       content: finalMessage,
       senderRole: "ADMIN",
-      senderName: "Ms. Dung (Hotline Trung Tâm)",
-      senderPhone: "0964645174",
+      senderName: adminAccount?.name || "Chủ Trung Tâm",
+      senderPhone: adminAccount?.phone || "",
       openChatWindow: false,
     });
 

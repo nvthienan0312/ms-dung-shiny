@@ -794,6 +794,7 @@ export default function MonthlyExamReportManager({
           setToastMessage(`✓ Đã hoàn tất phiên gửi hàng đợi Zalo báo điểm thi cho ${count} phụ huynh lớp ${currentClass?.name}!`);
         }}
         senderRole="TEACHER"
+        senderStaffId={activeStaff.id}
         senderName={activeStaff.fullName}
         senderPhone={activeStaff.phone}
       />

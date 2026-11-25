@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const res = await multiZaloBotManager.sendMessageWithFallback({
+    const res = await multiZaloBotManager.sendMessageFromAccount({
       phone,
       userId,
       groupId,

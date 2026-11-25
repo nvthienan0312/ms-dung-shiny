@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { UserRole, MOCK_USERS } from "@/types/auth";
+import { UserRole } from "@/types/auth";
 import { useCenter } from "@/context/CenterContext";
 import LoginView from "@/components/auth/LoginView";
 import AdminChangePasswordModal from "@/components/auth/AdminChangePasswordModal";
@@ -75,9 +75,9 @@ export default function HomePage() {
     monthlyExamReports,
     staffTimesheets,
     makeupClasses,
+    userAccounts,
     currentUserAccount,
     logout,
-    isZaloSessionValid,
     cloudSyncStatus,
     lastCloudSyncAt,
     triggerCloudSync
@@ -123,31 +123,39 @@ export default function HomePage() {
     return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === "ASSISTANT");
   }, [staff, currentStaffId]);
 
+  const adminAccount = useMemo(() => {
+    return userAccounts.find((a) => a.role === "ADMIN");
+  }, [userAccounts]);
+
   // Xác định thông tin SĐT và Tên phù hợp với vai trò Zalo (Đặt trước early return)
   const activeZaloStaffInfo = useMemo(() => {
     if (activeRole === "ADMIN") {
       return {
-        name: "Ms. Dung Shiny (Hotline)",
-        phone: "0964645174",
+        staffId: undefined,
+        name: currentUserAccount?.name || adminAccount?.name || "Chủ Trung Tâm",
+        phone: currentUserAccount?.phone || adminAccount?.phone || "",
       };
     }
     if (activeRole === "TEACHER") {
       return {
+        staffId: currentTeacherStaff?.id || currentStaffId,
         name: currentTeacherStaff?.fullName || currentUserAccount?.name || "Giáo Viên",
         phone: currentTeacherStaff?.phone || currentUserAccount?.phone || "",
       };
     }
     if (activeRole === "ASSISTANT") {
       return {
+        staffId: currentAssistantStaff?.id || currentStaffId,
         name: currentAssistantStaff?.fullName || currentUserAccount?.name || "Trợ Giảng",
         phone: currentAssistantStaff?.phone || currentUserAccount?.phone || "",
       };
     }
     return {
+      staffId: undefined,
       name: currentUserAccount?.name || "Phụ huynh",
       phone: currentUserAccount?.phone || "",
     };
-  }, [activeRole, currentTeacherStaff, currentAssistantStaff, currentUserAccount]);
+  }, [activeRole, currentTeacherStaff, currentAssistantStaff, currentUserAccount, adminAccount, currentStaffId]);
 
   // If not logged in, render the secure Login View
   if (!currentUserAccount) {
@@ -155,28 +163,26 @@ export default function HomePage() {
   }
 
   // Check if current logged-in user is Admin
-  const isAdminUser = 
-    currentUserAccount.role === "ADMIN" || 
-    currentUserAccount.phone === "0964645174" || 
-    currentUserAccount.id === "user-admin-1" ||
-    Boolean(currentUserAccount.name?.includes("Dung"));
+  const isAdminUser = currentUserAccount.role === "ADMIN";
 
   const currentUser = {
     id: currentUserAccount.id,
-    name: isAdminUser ? "Ms. Dung (Chủ trung tâm)" : currentUserAccount.name,
+    name: currentUserAccount.name || (isAdminUser ? adminAccount?.name || "Chủ Trung Tâm" : "Người dùng"),
     email: isAdminUser 
-      ? "dung.shiny@center.edu.vn" 
+      ? "admin@center.edu.vn" 
       : (currentUserAccount.staffId 
         ? staff.find((s) => s.id === currentUserAccount.staffId)?.email || "staff@center.edu.vn" 
         : "phuhuynh@gmail.com"),
     role: activeRole,
-    avatarUrl: currentUserAccount.avatarUrl || MOCK_USERS[activeRole]?.avatarUrl || "",
+    avatarUrl:
+      currentUserAccount.avatarUrl ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(currentUserAccount.name || currentUserAccount.id)}`,
     title: activeRole === "ADMIN"
-      ? "Giám đốc Trung tâm / Quản trị viên"
+      ? "Chủ Trung Tâm / Quản trị viên"
       : (activeRole === "TEACHER"
-        ? (currentTeacherStaff?.fullName || "Giáo viên Trung tâm Ms. Dung Shiny")
+        ? (currentTeacherStaff?.fullName || currentUserAccount.name || "Giáo viên")
         : (activeRole === "ASSISTANT"
-          ? (currentAssistantStaff?.fullName || "Trợ giảng (TA) Trung tâm")
+          ? (currentAssistantStaff?.fullName || currentUserAccount.name || "Trợ giảng (TA)")
           : "Phụ huynh học sinh")),
     phone: currentUserAccount.phone,
   };
@@ -249,18 +255,12 @@ export default function HomePage() {
           {activeRole !== "PARENT" && (
             <button
               onClick={() => setIsZaloSessionOpen(true)}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer active-press ${
-                isZaloSessionValid(activeRole as any)
-                  ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900"
-                  : "border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900"
-              }`}
-              title="Đăng nhập Zalo, quét mã QR và đổi tài khoản"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold transition shadow-xs cursor-pointer active-press"
+              title="Quét mã QR đăng nhập Bot Zalo riêng của tài khoản này"
             >
-              <span className={`w-2 h-2 rounded-full ${
-                isZaloSessionValid(activeRole as any) ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-              }`} />
-              <span className="hidden sm:inline">Zalo Bot:</span>
-              <span className="text-[11px] sm:text-xs">{isZaloSessionValid(activeRole as any) ? "Zalo" : "QR"}</span>
+              <QrCode className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden sm:inline">Zalo Cá Nhân</span>
+              <span className="sm:hidden text-[11px]">Zalo</span>
             </button>
           )}
 
@@ -279,10 +279,10 @@ export default function HomePage() {
               <button
                 onClick={() => setIsAdminChangePasswordOpen(true)}
                 className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition shadow-xs text-xs font-bold active-press cursor-pointer"
-                title="Đổi mật khẩu tài khoản Quản trị viên"
+                title="Cập nhật tên, SĐT chủ trung tâm & đổi mật khẩu Admin"
               >
                 <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                <span>Đổi MK Admin</span>
+                <span>Hồ Sơ &amp; MK Admin</span>
               </button>
             </>
           )}
@@ -351,7 +351,7 @@ export default function HomePage() {
                         className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer text-left"
                       >
                         <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Đổi Mật Khẩu Admin</span>
+                        <span>Hồ Sơ &amp; MK Admin</span>
                       </button>
                       <button
                         type="button"
@@ -388,6 +388,7 @@ export default function HomePage() {
       {/* THANH TOP BAR ZALO RIÊNG BIỆT - HIỂN THỊ ĐẦY ĐỦ 100% THÔNG TIN & THAO TÁC */}
       <ZaloTopBarBanner
         activeRole={activeRole as any}
+        staffId={activeZaloStaffInfo.staffId}
         staffName={activeZaloStaffInfo.name}
         staffPhone={activeZaloStaffInfo.phone}
       />
@@ -907,6 +908,7 @@ export default function HomePage() {
           isOpen={isZaloSessionOpen}
           onClose={() => setIsZaloSessionOpen(false)}
           activeRole={activeRole as any}
+          staffId={activeZaloStaffInfo.staffId}
           staffName={activeZaloStaffInfo.name}
           staffPhone={activeZaloStaffInfo.phone}
         />

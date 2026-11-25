@@ -899,6 +899,7 @@ export default function HomeworkGradingManager({
           setToastMessage(`✓ Đã hoàn tất phiên gửi hàng đợi Zalo nhắc BTVN cho ${count} phụ huynh lớp ${currentClass.name}!`);
         }}
         senderRole={userRole === "ASSISTANT" ? "ASSISTANT" : "TEACHER"}
+        senderStaffId={activeStaff.id}
         senderName={activeStaff.fullName}
         senderPhone={activeStaff.phone}
       />

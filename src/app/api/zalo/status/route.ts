@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const phone = searchParams.get("phone");
 
     const bot = multiZaloBotManager.getBotInstance(account || undefined, role || undefined, phone || undefined);
-    const status = bot.getStatus();
+    const status = await bot.getStatus();
 
     return NextResponse.json(status);
   } catch (error: any) {

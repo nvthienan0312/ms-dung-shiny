@@ -92,7 +92,12 @@ export default function MakeupClassesManager({
     resetMonthlyMakeupBenefits,
     sendZaloMessageToParent,
     renderZaloTemplate,
+    userAccounts,
   } = useCenter();
+
+  const adminAccount = userAccounts.find((a) => a.role === "ADMIN");
+  const adminSenderName = adminAccount?.name || "Chủ Trung Tâm";
+  const adminSenderPhone = adminAccount?.phone || "";
 
   // Chọn tháng học bù (Tracking thời gian thực)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentBillingMonth());
@@ -2252,8 +2257,8 @@ export default function MakeupClassesManager({
           showToast(`🎉 Hoàn thành gửi tự động Zalo tới ${count} phụ huynh học sinh!`);
         }}
         senderRole="ADMIN"
-        senderName="Ms. Dung (Hotline Trung Tâm)"
-        senderPhone="0964645174"
+        senderName={adminSenderName}
+        senderPhone={adminSenderPhone}
       />
     </div>
   );

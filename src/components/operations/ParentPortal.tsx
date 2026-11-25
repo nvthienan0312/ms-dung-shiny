@@ -204,11 +204,11 @@ export default function ParentPortal() {
 
   // Active student's teacher and TA
   const classTeacher = useMemo(() => {
-    return (staff || []).find((s) => s.id === activeClass?.teacherId) || { fullName: activeClass?.teacherName || "Giáo viên", phone: "0901 234 567" };
+    return (staff || []).find((s) => s.id === activeClass?.teacherId) || { fullName: activeClass?.teacherName || "Giáo viên", phone: "" };
   }, [staff, activeClass]);
 
   const classAssistant = useMemo(() => {
-    return (staff || []).find((s) => s.id === activeClass?.assistantId) || { fullName: activeClass?.assistantName || "Trợ giảng", phone: "0902 345 678" };
+    return (staff || []).find((s) => s.id === activeClass?.assistantId) || { fullName: activeClass?.assistantName || "Trợ giảng", phone: "" };
   }, [staff, activeClass]);
 
   // Attendance for active student today / latest session

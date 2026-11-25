@@ -634,6 +634,9 @@ export default function StudentIncidentNotesManager({
           initialContent={editZaloModal.initialContent}
           title={editZaloModal.title}
           templateBadge={editZaloModal.templateBadge}
+          senderRole={userRole === "TEACHER" ? "TEACHER" : "ASSISTANT"}
+          senderStaffId={activeStaff.id}
+          senderPhone={activeStaff.phone}
           onSend={handleConfirmSendZalo}
         />
       )}

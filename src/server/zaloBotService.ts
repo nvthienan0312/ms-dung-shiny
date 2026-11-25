@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 // Kiểu dữ liệu thông tin người dùng Zalo
@@ -18,8 +19,38 @@ export type ZaloQrStatus =
   | "expired"
   | "error";
 
+function normalizeVnPhoneDigits(raw: string): {
+  rawDigits: string;
+  phone0: string;
+  phone84: string;
+} {
+  const rawDigits = (raw || "").replace(/[^0-9]/g, "");
+  if (!rawDigits) return { rawDigits: "", phone0: "", phone84: "" };
+  let phone0 = rawDigits;
+  let phone84 = rawDigits;
+  if (rawDigits.startsWith("84") && rawDigits.length >= 10) {
+    phone0 = "0" + rawDigits.slice(2);
+    phone84 = rawDigits;
+  } else if (rawDigits.startsWith("0")) {
+    phone0 = rawDigits;
+    phone84 = "84" + rawDigits.slice(1);
+  }
+  return { rawDigits, phone0, phone84 };
+}
+
+function normalizeGroupInviteCode(url: string): string | null {
+  const match = (url || "").trim().match(/zalo\.me\/g\/([a-zA-Z0-9_-]+)/i) ||
+    (url || "").trim().match(/\/g\/([a-zA-Z0-9_-]+)/i);
+  return match ? match[1].trim() : null;
+}
+
+function normalizeTextStrict(val: string): string {
+  return (val || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 /**
- * Đại diện cho 1 phiên Zalo Bot độc lập của 1 tài khoản (Admin, Giáo viên, Trợ giảng)
+ * Đại diện cho 1 phiên Zalo Bot độc lập của ĐÚNG 1 tài khoản cụ thể.
+ * Không dùng chung phiên hay ghi đè giữa các tài khoản khác nhau.
  */
 export class SingleZaloBotInstance {
   public readonly accountKey: string;
@@ -31,81 +62,201 @@ export class SingleZaloBotInstance {
   private connectedUserInfo: ZaloConnectedUser | null = null;
   private isLoggingIn: boolean = false;
   private qrGeneratedAt: number = 0;
-  private readonly sessionFile: string;
-  private readonly sessionBakFile: string;
+  private readonly safeKey: string;
+  private readonly primarySessionFile: string;
+  private readonly primarySessionBakFile: string;
+  private readonly tmpSessionFile: string;
+  private readonly tmpSessionBakFile: string;
+  private readonly dbSessionKey: string;
+  private restorePromise: Promise<boolean> | null = null;
+  private hasAttemptedRestore: boolean = false;
 
   constructor(accountKey: string, role: "ADMIN" | "TEACHER" | "ASSISTANT" = "ADMIN") {
-    this.accountKey = accountKey.toLowerCase();
+    this.safeKey = (accountKey || "admin")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "_")
+      .replace(/^_+|_+$/g, "") || "admin";
+    this.accountKey = this.safeKey;
     this.role = role;
 
-    // Tên file session riêng biệt cho từng tài khoản để đảm bảo sự độc lập tuyệt đối
-    const safeKey = this.accountKey.replace(/[^a-z0-9_-]/g, "_");
-    this.sessionFile = path.join(process.cwd(), `zalo_session_${safeKey}.json`);
-    this.sessionBakFile = path.join(process.cwd(), `zalo_session_${safeKey}.json.bak`);
+    const fileName = `zalo_session_${this.safeKey}.json`;
+    const bakName = `zalo_session_${this.safeKey}.json.bak`;
+    this.primarySessionFile = path.join(process.cwd(), fileName);
+    this.primarySessionBakFile = path.join(process.cwd(), bakName);
 
-    // Tương thích ngược: Nếu là tài khoản Admin/mặc định và có file zalo_session.json cũ
-    if (this.accountKey === "admin" || this.accountKey === "default") {
+    const tmpDir = path.join(os.tmpdir(), "ms-dung-zalo-sessions");
+    this.tmpSessionFile = path.join(tmpDir, fileName);
+    this.tmpSessionBakFile = path.join(tmpDir, bakName);
+
+    // Khóa DB tách biệt hoàn toàn với main_center_data
+    this.dbSessionKey = `zalo_bot_session_${this.safeKey}`;
+
+    // Chỉ kế thừa file cũ duy nhất cho tài khoản admin mặc định
+    if (this.safeKey === "admin") {
       const legacyFile = path.join(process.cwd(), "zalo_session.json");
-      if (!fs.existsSync(this.sessionFile) && fs.existsSync(legacyFile)) {
+      if (!fs.existsSync(this.primarySessionFile) && fs.existsSync(legacyFile)) {
         try {
-          fs.copyFileSync(legacyFile, this.sessionFile);
+          fs.copyFileSync(legacyFile, this.primarySessionFile);
         } catch (_e) {}
       }
     }
-
-    this.tryRestoreSession();
   }
 
-  // Khôi phục phiên từ file session riêng của tài khoản
-  public async tryRestoreSession(): Promise<boolean> {
-    const fileToTry = fs.existsSync(this.sessionFile)
-      ? this.sessionFile
-      : fs.existsSync(this.sessionBakFile)
-      ? this.sessionBakFile
-      : null;
+  private writeLocalSessionFiles(sessionData: any) {
+    const serialized = JSON.stringify(sessionData, null, 2);
+    try {
+      fs.writeFileSync(this.primarySessionFile, serialized, "utf8");
+      fs.writeFileSync(this.primarySessionBakFile, serialized, "utf8");
+      return;
+    } catch (_err) {
+      // Fallback sang os.tmpdir() khi chạy trên môi trường serverless read-only (Netlify/Lambda)
+    }
+    try {
+      const tmpDir = path.dirname(this.tmpSessionFile);
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      fs.writeFileSync(this.tmpSessionFile, serialized, "utf8");
+      fs.writeFileSync(this.tmpSessionBakFile, serialized, "utf8");
+    } catch (_err2) {}
+  }
 
-    if (!fileToTry) return false;
+  private readLocalSessionContent(): { content: string; source: string } | null {
+    const candidates = [
+      this.primarySessionFile,
+      this.primarySessionBakFile,
+      this.tmpSessionFile,
+      this.tmpSessionBakFile,
+    ];
+    for (const filePath of candidates) {
+      try {
+        if (fs.existsSync(filePath)) {
+          return { content: fs.readFileSync(filePath, "utf8"), source: filePath };
+        }
+      } catch (_e) {}
+    }
+    return null;
+  }
+
+  private async saveSessionToDb(sessionData: any) {
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      await prisma.centerDataStore.upsert({
+        where: { key: this.dbSessionKey },
+        update: { data: sessionData },
+        create: { key: this.dbSessionKey, data: sessionData },
+      });
+    } catch (_err) {
+      // Không chặn luồng chính nếu chưa cấu hình DB hoặc đang chạy offline
+    }
+  }
+
+  private async loadSessionFromDb(): Promise<any | null> {
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      const record = await prisma.centerDataStore.findUnique({
+        where: { key: this.dbSessionKey },
+      });
+      if (record && record.data && typeof record.data === "object") {
+        return record.data;
+      }
+    } catch (_err) {}
+    return null;
+  }
+
+  private async deleteSessionStorage() {
+    for (const filePath of [
+      this.primarySessionFile,
+      this.primarySessionBakFile,
+      this.tmpSessionFile,
+      this.tmpSessionBakFile,
+    ]) {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (_e) {}
+    }
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      await prisma.centerDataStore.deleteMany({
+        where: { key: this.dbSessionKey },
+      });
+    } catch (_e) {}
+  }
+
+  public async ensureRestored(): Promise<boolean> {
+    if (this.zaloApi) return true;
+    if (this.isLoggingIn) return false;
+    if (this.hasAttemptedRestore && !this.restorePromise) return false;
+    if (!this.restorePromise) {
+      this.restorePromise = this.tryRestoreSession().finally(() => {
+        this.restorePromise = null;
+      });
+    }
+    return this.restorePromise;
+  }
+
+  // Khôi phục phiên từ file hoặc DB riêng của tài khoản này
+  public async tryRestoreSession(): Promise<boolean> {
+    this.hasAttemptedRestore = true;
+    let sessionData: any = null;
+
+    const local = this.readLocalSessionContent();
+    if (local) {
+      try {
+        sessionData = JSON.parse(local.content);
+      } catch (_e) {
+        sessionData = null;
+      }
+    }
+
+    if (!sessionData) {
+      sessionData = await this.loadSessionFromDb();
+    }
+
+    if (!sessionData) return false;
 
     try {
-      console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đang khôi phục phiên từ:`, fileToTry);
-      const sessionContent = fs.readFileSync(fileToTry, "utf8");
-      const sessionData = JSON.parse(sessionContent);
-
       const { Zalo } = await import("zca-js");
       this.zaloInstance = new Zalo();
       const api = await this.zaloInstance.login(sessionData);
 
       this.zaloApi = api;
       this.currentQrStatus = "connected";
-      this.saveSessionFromApi(api);
-
-      try {
-        const accRes = await api.fetchAccountInfo();
-        const profile = accRes?.profile || accRes || {};
-        const ctx = api.getContext();
-        this.connectedUserInfo = {
-          id: profile.userId || profile.uid || ctx?.uid || `zalo_user_${this.accountKey}`,
-          name: profile.displayName || profile.display_name || profile.name || `Zalo ${this.accountKey.toUpperCase()}`,
-          avatar: profile.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + this.accountKey,
-          phone: profile.phoneNumber || "",
-        };
-        console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Khôi phục phiên thành công:`, this.connectedUserInfo.name);
-      } catch (e) {
-        this.connectedUserInfo = {
-          id: `uid_${this.accountKey}`,
-          name: `Zalo ${this.accountKey.toUpperCase()}`,
-          avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=" + this.accountKey,
-          phone: "",
-        };
-      }
+      await this.saveSessionFromApi(api);
+      await this.hydrateSelfInfo(api);
       return true;
     } catch (err: any) {
-      console.warn(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Không thể khôi phục phiên cũ:`, err?.message || err);
+      console.warn(`[ZALO BOT - ${this.accountKey}] Khôi phục phiên thất bại:`, err?.message || err);
+      this.zaloApi = null;
+      this.connectedUserInfo = null;
       return false;
     }
   }
 
-  private saveSessionFromApi(api: any) {
+  private async hydrateSelfInfo(api: any) {
+    try {
+      const accRes = await api.fetchAccountInfo();
+      const profile = accRes?.profile || accRes || {};
+      const ctx = api.getContext();
+      this.connectedUserInfo = {
+        id: profile.userId || profile.uid || ctx?.uid || `zalo_user_${this.accountKey}`,
+        name: profile.displayName || profile.display_name || profile.name || `Zalo (${this.accountKey})`,
+        avatar: profile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(this.accountKey)}`,
+        phone: profile.phoneNumber || "",
+      };
+    } catch (_e) {
+      this.connectedUserInfo = {
+        id: `uid_${this.accountKey}`,
+        name: `Zalo (${this.accountKey})`,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(this.accountKey)}`,
+        phone: "",
+      };
+    }
+  }
+
+  private async saveSessionFromApi(api: any) {
     try {
       const ctx = api.getContext();
       if (ctx && ctx.cookie) {
@@ -116,118 +267,116 @@ export class SingleZaloBotInstance {
             ctx.options?.userAgent ||
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
         };
-        fs.writeFileSync(this.sessionFile, JSON.stringify(sessionData, null, 2), "utf8");
-        fs.writeFileSync(this.sessionBakFile, JSON.stringify(sessionData, null, 2), "utf8");
-        console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đã lưu phiên vào ${path.basename(this.sessionFile)} thành công!`);
+        this.writeLocalSessionFiles(sessionData);
+        await this.saveSessionToDb(sessionData);
       }
     } catch (err: any) {
-      console.warn(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Lưu session thất bại:`, err.message);
+      console.warn(`[ZALO BOT - ${this.accountKey}] Lưu session thất bại:`, err?.message);
     }
   }
 
-  // Khởi tạo mã QR để đăng nhập (Hỗ trợ forceNew để quét tài khoản khác / làm mới tự động)
-  public async initQrLogin(forceNew: boolean = false): Promise<{ success: boolean; qrCode?: string; message?: string }> {
-    // Nếu forceNew = true hoặc đang yêu cầu đổi tài khoản khác: Hủy kết nối cũ trước
+  // Khởi tạo mã QR để đăng nhập cho đúng tài khoản này
+  public async initQrLogin(forceNew: boolean = false): Promise<{
+    success: boolean;
+    qrCode?: string;
+    alreadyConnected?: boolean;
+    message?: string;
+  }> {
     if (forceNew) {
-      console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Yêu cầu tạo mã QR mới (Đổi tài khoản khác)...`);
-      this.disconnect();
-    } else if (this.zaloApi) {
-      return {
-        success: true,
-        message: `Tài khoản Zalo ${this.connectedUserInfo?.name || this.accountKey} đã được kết nối sẵn.`,
-      };
+      await this.disconnect();
+    } else {
+      await this.ensureRestored();
+      if (this.zaloApi) {
+        return {
+          success: true,
+          alreadyConnected: true,
+          message: `Zalo "${this.connectedUserInfo?.name || this.accountKey}" đã được kết nối sẵn.`,
+        };
+      }
     }
 
-    // Nếu mã QR hiện tại còn hiệu lực (< 50 giây), tái sử dụng
     const now = Date.now();
     if (!forceNew && this.currentQrCode && this.currentQrStatus === "ready" && now - this.qrGeneratedAt < 50000) {
       return {
         success: true,
         qrCode: this.currentQrCode,
-        message: "Mã QR hiện tại vẫn đang sẵn sàng (còn hạn).",
+        message: "Mã QR hiện tại vẫn đang sẵn sàng.",
       };
     }
 
     this.isLoggingIn = true;
     this.currentQrStatus = "generating";
     this.currentQrCode = null;
+    this.hasAttemptedRestore = true;
 
     try {
       const { Zalo, LoginQRCallbackEventType } = await import("zca-js");
       this.zaloInstance = new Zalo();
 
       return new Promise((resolve) => {
+        let settled = false;
+        const safeResolve = (payload: { success: boolean; qrCode?: string; message?: string }) => {
+          if (!settled) {
+            settled = true;
+            resolve(payload);
+          }
+        };
+
         this.zaloInstance
           .loginQR({}, (event: any) => {
             if (event.type === LoginQRCallbackEventType.QRCodeGenerated) {
-              console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đã sinh mã QR thật từ Zalo Server!`);
               this.currentQrCode = "data:image/png;base64," + event.data.image;
               this.currentQrStatus = "ready";
               this.qrGeneratedAt = Date.now();
-              resolve({
+              safeResolve({
                 success: true,
                 qrCode: this.currentQrCode,
-                message: "Đã tạo mã QR thành công, vui lòng quét bằng app Zalo trên điện thoại.",
+                message: "Đã tạo mã QR thành công. Mở ứng dụng Zalo trên điện thoại để quét.",
               });
             } else if (event.type === LoginQRCallbackEventType.QRCodeScanned) {
-              console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Mã QR đã được quét bằng điện thoại!`);
               this.currentQrStatus = "scanned";
             } else if (event.type === LoginQRCallbackEventType.GotLoginInfo) {
-              try {
-                fs.writeFileSync(this.sessionFile, JSON.stringify(event.data, null, 2), "utf8");
-                fs.writeFileSync(this.sessionBakFile, JSON.stringify(event.data, null, 2), "utf8");
-                console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đã lưu thông tin GotLoginInfo!`);
-              } catch (sErr) {}
+              if (event.data) {
+                this.writeLocalSessionFiles(event.data);
+                void this.saveSessionToDb(event.data);
+              }
             } else if (event.type === LoginQRCallbackEventType.QRCodeExpired) {
-              console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Mã QR đã hết hạn.`);
               this.currentQrStatus = "expired";
               this.currentQrCode = null;
               this.isLoggingIn = false;
             }
           })
           .then(async (api: any) => {
-            console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đăng nhập Zalo thành công!`);
             this.zaloApi = api;
-            this.saveSessionFromApi(api);
+            await this.saveSessionFromApi(api);
+            await this.hydrateSelfInfo(api);
             this.currentQrStatus = "connected";
             this.currentQrCode = null;
             this.isLoggingIn = false;
-
-            try {
-              const accRes = await api.fetchAccountInfo();
-              const profile = accRes?.profile || accRes || {};
-              const ctx = api.getContext();
-              this.connectedUserInfo = {
-                id: profile.userId || profile.uid || ctx?.uid || `zalo_user_${this.accountKey}`,
-                name: profile.displayName || profile.display_name || profile.name || `Zalo ${this.accountKey.toUpperCase()}`,
-                avatar: profile.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=" + this.accountKey,
-                phone: profile.phoneNumber || "",
-              };
-              console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Tài khoản đăng nhập:`, this.connectedUserInfo.name);
-            } catch (e) {
-              this.connectedUserInfo = {
-                id: `uid_${this.accountKey}`,
-                name: `Zalo ${this.accountKey.toUpperCase()}`,
-                avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=" + this.accountKey,
-                phone: "",
-              };
-            }
+            safeResolve({
+              success: true,
+              message: `Đăng nhập Zalo thành công (${this.connectedUserInfo?.name || this.accountKey})!`,
+            });
           })
           .catch((err: any) => {
-            console.error(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Lỗi trong quá trình quét QR:`, err?.message || err);
+            console.error(`[ZALO BOT - ${this.accountKey}] Lỗi đăng nhập QR:`, err?.message || err);
             this.currentQrStatus = "error";
             this.isLoggingIn = false;
+            safeResolve({
+              success: false,
+              message: `Không thể tạo/xác thực mã QR Zalo: ${err?.message || "Lỗi kết nối Zalo Server"}`,
+            });
           });
 
-        // Timeout dự phòng sau 10 giây nếu chưa nhận được callback QRCodeGenerated
         setTimeout(() => {
-          if (!this.currentQrCode) {
-            resolve({
+          if (!this.currentQrCode && !this.zaloApi) {
+            this.isLoggingIn = false;
+            safeResolve({
               success: false,
-              message: "Chưa nhận được mã QR từ máy chủ Zalo. Vui lòng thử lại sau giây lát.",
+              message: "Máy chủ Zalo phản hồi chậm khi tạo mã QR. Vui lòng bấm Thử lại.",
             });
           }
-        }, 10000);
+        }, 12000);
       });
     } catch (err: any) {
       this.isLoggingIn = false;
@@ -239,8 +388,8 @@ export class SingleZaloBotInstance {
     }
   }
 
-  // Lấy trạng thái kết nối của tài khoản này
-  public getStatus() {
+  public async getStatus() {
+    await this.ensureRestored();
     const now = Date.now();
     const qrAge = this.qrGeneratedAt > 0 ? Math.floor((now - this.qrGeneratedAt) / 1000) : 0;
     const qrRemainingSec = Math.max(0, 60 - qrAge);
@@ -249,28 +398,85 @@ export class SingleZaloBotInstance {
       accountKey: this.accountKey,
       role: this.role,
       isConnected: !!this.zaloApi,
-      status: this.currentQrStatus,
+      status: this.zaloApi ? "connected" : this.currentQrStatus,
       qrCode: this.currentQrCode,
       qrRemainingSec,
-      isExpired: this.currentQrStatus === "expired" || (this.currentQrCode && qrRemainingSec <= 0),
+      isExpired: this.currentQrStatus === "expired" || (!!this.currentQrCode && qrRemainingSec <= 0),
       user: this.connectedUserInfo,
     };
   }
 
-  // Lấy danh bạ bạn bè & nhóm của tài khoản này
+  private async fetchHydratedGroups(): Promise<Array<{ id: string; groupId: string; name: string; avatar?: string }>> {
+    if (!this.zaloApi || !this.zaloApi.getAllGroups) return [];
+
+    const groupsRaw = await this.zaloApi.getAllGroups().catch(() => []);
+    let rawIds: string[] = [];
+    let directList: any[] = [];
+
+    if (Array.isArray(groupsRaw)) {
+      directList = groupsRaw;
+    } else if (groupsRaw && typeof groupsRaw === "object") {
+      if (groupsRaw.gridVerMap && typeof groupsRaw.gridVerMap === "object") {
+        rawIds = Object.keys(groupsRaw.gridVerMap);
+      } else if (groupsRaw.groupMap && typeof groupsRaw.groupMap === "object") {
+        directList = Object.values(groupsRaw.groupMap);
+      }
+    }
+
+    if (directList.length > 0) {
+      return directList.slice(0, 60).map((g: any) => {
+        const gId = String(g.groupId || g.id || g.grid || "");
+        return {
+          id: gId,
+          groupId: gId,
+          name: g.name || g.groupName || `Nhóm Zalo (${gId})`,
+          avatar: g.avatar,
+        };
+      });
+    }
+
+    const cappedIds = rawIds.slice(0, 60);
+    const infoMap: Record<string, any> = {};
+
+    if (cappedIds.length > 0 && this.zaloApi.getGroupInfo) {
+      const chunkSize = 20;
+      for (let i = 0; i < cappedIds.length; i += chunkSize) {
+        const chunk = cappedIds.slice(i, i + chunkSize);
+        try {
+          const infoRes = await this.zaloApi.getGroupInfo(chunk);
+          if (infoRes && infoRes.gridInfoMap) {
+            Object.assign(infoMap, infoRes.gridInfoMap);
+          }
+        } catch (_e) {}
+      }
+    }
+
+    return cappedIds.map((gid) => {
+      const info = infoMap[gid];
+      return {
+        id: gid,
+        groupId: gid,
+        name: info?.name || `Nhóm Zalo (${gid})`,
+        avatar: info?.avt || info?.fullAvt,
+      };
+    });
+  }
+
+  // Lấy danh bạ bạn bè & nhóm thật (có tên đầy đủ) của tài khoản này
   public async getContacts() {
+    await this.ensureRestored();
     if (!this.zaloApi) {
       return { friends: [], groups: [], self: this.connectedUserInfo };
     }
 
     try {
-      const [friends, groups] = await Promise.all([
+      const [friends, hydratedGroups] = await Promise.all([
         this.zaloApi.getAllFriends ? this.zaloApi.getAllFriends().catch(() => []) : [],
-        this.zaloApi.getAllGroups ? this.zaloApi.getAllGroups().catch(() => []) : [],
+        this.fetchHydratedGroups(),
       ]);
 
       const formattedFriends = Array.isArray(friends)
-        ? friends.slice(0, 50).map((f: any) => ({
+        ? friends.slice(0, 100).map((f: any) => ({
             id: f.userId || f.uid,
             userId: f.userId || f.uid,
             name: f.displayName || f.display_name || f.zaloName || f.zalo_name || "Bạn bè",
@@ -279,41 +485,71 @@ export class SingleZaloBotInstance {
           }))
         : [];
 
-      let groupList: any[] = [];
-      if (Array.isArray(groups)) {
-        groupList = groups;
-      } else if (groups && typeof groups === "object") {
-        if (groups.gridVerMap && typeof groups.gridVerMap === "object") {
-          groupList = Object.keys(groups.gridVerMap).map((gid) => ({
-            groupId: gid,
-            name: `Nhóm Zalo (${gid})`,
-          }));
-        } else if (groups.groupMap && typeof groups.groupMap === "object") {
-          groupList = Object.values(groups.groupMap);
-        }
-      }
-
-      const formattedGroups = groupList.slice(0, 50).map((g: any) => {
-        const gId = g.groupId || g.id || g.grid;
-        return {
-          id: gId,
-          groupId: gId,
-          name: g.name || g.groupName || `Nhóm Zalo (${gId})`,
-          avatar: g.avatar,
-        };
-      });
-
       return {
         friends: formattedFriends,
-        groups: formattedGroups,
+        groups: hydratedGroups,
         self: this.connectedUserInfo,
       };
-    } catch (e) {
+    } catch (_e) {
       return { friends: [], groups: [], self: this.connectedUserInfo };
     }
   }
 
-  // Gửi tin nhắn thật qua Zalo API (1-Chạm trực tiếp, tự động 100%)
+  private async resolveGroupByInviteUrl(
+    cleanUrl: string,
+    fallbackName: string
+  ): Promise<{ groupId: string; groupName: string } | null> {
+    // 1. Gọi trực tiếp getGroupLinkInfo của zca-js
+    if (this.zaloApi.getGroupLinkInfo) {
+      try {
+        const linkInfo = await this.zaloApi.getGroupLinkInfo({ link: cleanUrl });
+        const gid = linkInfo?.groupId || linkInfo?.globalId;
+        if (gid) {
+          return {
+            groupId: String(gid),
+            groupName: linkInfo.name || fallbackName,
+          };
+        }
+      } catch (_le) {}
+    }
+
+    // 2. Nếu getGroupLinkInfo bị từ chối hoặc lỗi, kiểm tra link tham gia của các nhóm bot đã tham gia
+    const urlCode = normalizeGroupInviteCode(cleanUrl);
+    if (!urlCode) return null;
+
+    const groups = await this.fetchHydratedGroups();
+    const directIdMatch = groups.find((g) => g.groupId === urlCode || g.id === urlCode);
+    if (directIdMatch) {
+      return { groupId: directIdMatch.groupId, groupName: directIdMatch.name || fallbackName };
+    }
+
+    if (this.zaloApi.getGroupLinkDetail) {
+      const batchSize = 8;
+      for (let i = 0; i < groups.length; i += batchSize) {
+        const batch = groups.slice(i, i + batchSize);
+        const results = await Promise.all(
+          batch.map(async (g) => {
+            try {
+              const detail = await this.zaloApi.getGroupLinkDetail(g.groupId);
+              const detailCode = detail?.link ? normalizeGroupInviteCode(detail.link) : null;
+              if (detailCode && detailCode.toLowerCase() === urlCode.toLowerCase()) {
+                return g;
+              }
+            } catch (_e) {}
+            return null;
+          })
+        );
+        const found = results.find(Boolean);
+        if (found) {
+          return { groupId: found.groupId, groupName: found.name || fallbackName };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Gửi tin nhắn qua ĐÚNG bot của tài khoản này (không suy đoán nhầm nhóm / nhầm SĐT)
   public async sendMessage(params: {
     phone?: string;
     userId?: string;
@@ -322,89 +558,90 @@ export class SingleZaloBotInstance {
     groupName?: string;
     className?: string;
     message: string;
-  }): Promise<{ success: boolean; recipient?: string; message: string; error?: string }> {
+  }): Promise<{
+    success: boolean;
+    recipient?: string;
+    message: string;
+    error?: string;
+    needsZaloLogin?: boolean;
+  }> {
     const { phone, userId, groupId, groupUrl, groupName, className, message } = params;
 
     if (!message || !message.trim()) {
       return { success: false, error: "Thiếu nội dung tin nhắn.", message: "Nội dung rỗng" };
     }
 
+    await this.ensureRestored();
+
     if (!this.zaloApi) {
       return {
         success: false,
-        error: `Tài khoản Zalo (${this.accountKey.toUpperCase()}) chưa quét mã QR kết nối. Vui lòng quét mã QR để kích hoạt gửi tự động.`,
-        message: "Chưa kết nối nick Zalo",
+        needsZaloLogin: true,
+        error: `Tài khoản Zalo cá nhân (${this.accountKey}) chưa kết nối Bot. Vui lòng bấm biểu tượng Zalo trên thanh trên cùng để quét mã QR đăng nhập.`,
+        message: "Chưa kết nối tài khoản Zalo",
       };
     }
 
     try {
       const { ThreadType } = await import("zca-js");
 
-      // 1. GỬI THẲNG VÀO NHÓM ZALO (GROUP ID hoặc TÌM THEO LINK / TÊN NHÓM)
-      let targetGroupId = groupId;
-      let targetGroupName = groupName || className || "Nhóm Zalo Lớp";
+      // 1. GỬI NHÓM ZALO LỚP
+      const isGroupIntent = Boolean(groupId?.trim() || groupUrl?.trim() || groupName?.trim());
+      if (isGroupIntent) {
+        let targetGroupId = groupId?.trim() || "";
+        let targetGroupName = groupName || className || "Nhóm Zalo Lớp";
 
-      // A. Nếu chưa có targetGroupId nhưng có groupUrl
-      if (!targetGroupId && groupUrl) {
-        console.log(`[ZALO SEND - ${this.accountKey}] Đang tra cứu nhóm từ groupUrl: ${groupUrl}`);
-        
-        // 1. Thử gọi API getGroupLinkInfo từ zca-js để lấy groupId chuẩn xác nhất
-        if (this.zaloApi.getGroupLinkInfo) {
-          try {
-            const linkInfo = await this.zaloApi.getGroupLinkInfo({ link: groupUrl });
-            if (linkInfo && (linkInfo.groupId || linkInfo.globalId)) {
-              targetGroupId = linkInfo.groupId || linkInfo.globalId;
-              targetGroupName = linkInfo.name || targetGroupName;
-              console.log(`[ZALO SEND - ${this.accountKey}] getGroupLinkInfo thành công -> GroupId: ${targetGroupId} (${targetGroupName})`);
+        // Ưu tiên tuyệt đối: Nếu có groupUrl -> chỉ tìm theo groupUrl đó, KHÔNG rơi về khớp mờ tên lớp!
+        if (!targetGroupId && groupUrl?.trim()) {
+          const resolved = await this.resolveGroupByInviteUrl(groupUrl.trim(), targetGroupName);
+          if (!resolved) {
+            return {
+              success: false,
+              error: `Không tìm thấy hoặc không truy cập được nhóm Zalo từ link "${groupUrl.trim()}". Vui lòng kiểm tra tài khoản Zalo (${this.connectedUserInfo?.name || this.accountKey}) đã tham gia đúng nhóm này chưa hoặc chọn đúng nhóm trong danh sách.`,
+              message: "Không khớp được link nhóm Zalo",
+            };
+          }
+          targetGroupId = resolved.groupId;
+          targetGroupName = resolved.groupName;
+        }
+
+        // Chỉ tra theo tên nếu KHÔNG truyền cả groupId lẫn groupUrl
+        if (!targetGroupId && !groupUrl?.trim() && (groupName || className)) {
+          const searchTarget = normalizeTextStrict(groupName || className || "");
+          if (searchTarget.length >= 2) {
+            const groups = await this.fetchHydratedGroups();
+            // Ưu tiên khớp chính xác tên hoàn toàn
+            let matched = groups.find((g) => normalizeTextStrict(g.name) === searchTarget);
+            // Nếu không có tên khớp 100%, chỉ khớp theo ranh giới từ (tránh "K1" khớp nhầm "K12" hoặc rỗng)
+            if (!matched && searchTarget.length >= 3) {
+              const escaped = searchTarget.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const regex = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
+              matched = groups.find((g) => g.name && regex.test(normalizeTextStrict(g.name)));
             }
-          } catch (_le: any) {
-            console.log(`[ZALO SEND - ${this.accountKey}] getGroupLinkInfo note:`, _le?.message || _le);
+            if (matched) {
+              targetGroupId = matched.groupId;
+              targetGroupName = matched.name || targetGroupName;
+            }
           }
         }
 
-        // 2. Nếu vẫn chưa có targetGroupId, tra cứu trong danh bạ nhóm của bot
         if (!targetGroupId) {
-          const contacts = await this.getContacts();
-          const linkMatch = groupUrl.match(/\/g\/([a-zA-Z0-9_-]+)/);
-          const urlId = linkMatch ? linkMatch[1] : null;
-
-          if (urlId) {
-            const matchedGroup = contacts.groups.find((g: any) => g.groupId === urlId || g.id === urlId);
-            if (matchedGroup) {
-              targetGroupId = matchedGroup.groupId || matchedGroup.id;
-              targetGroupName = matchedGroup.name || targetGroupName;
-            }
-          }
+          return {
+            success: false,
+            error: `Không xác định được Nhóm Zalo lớp "${targetGroupName}". Vui lòng dán đúng Link nhóm (zalo.me/g/...) hoặc chọn nhóm từ danh sách Bot.`,
+            message: "Chưa xác định được nhóm Zalo",
+          };
         }
-      }
 
-      // B. Nếu vẫn chưa có targetGroupId, tra cứu theo tên nhóm hoặc tên lớp
-      if (!targetGroupId && (groupName || className)) {
-        const searchTarget = (groupName || className || "").toLowerCase().trim();
-        const contacts = await this.getContacts();
-        const matched = contacts.groups.find((g: any) => {
-          const gName = (g.name || "").toLowerCase().trim();
-          return gName.includes(searchTarget) || searchTarget.includes(gName);
-        });
-        if (matched) {
-          targetGroupId = matched.groupId || matched.id;
-          targetGroupName = matched.name || targetGroupName;
-          console.log(`[ZALO SEND - ${this.accountKey}] Khớp nhóm Zalo theo tên: ${targetGroupId} (${matched.name})`);
-        }
-      }
-
-      // C. Nếu đã tìm thấy ID nhóm Zalo, gửi tự động 100% qua ThreadType.Group
-      if (targetGroupId) {
-        console.log(`[ZALO SEND - ${this.accountKey}] Gửi thẳng tự động vào nhóm Zalo ID: ${targetGroupId} (${targetGroupName})`);
         await this.zaloApi.sendMessage({ msg: message }, targetGroupId, ThreadType.Group);
         return {
           success: true,
           recipient: targetGroupName,
-          message: `Đã gửi trực tiếp 1-chạm vào nhóm Zalo "${targetGroupName}" thành công!`,
+          message: `Đã gửi thành công vào nhóm Zalo "${targetGroupName}"!`,
         };
       }
 
-      // 2. Gửi qua User ID hoặc gửi vào Cloud cá nhân
+      // 2. GỬI QUA USER ID HOẶC CLOUD CỦA TÔI
       if (userId) {
         let targetId = userId;
         let targetName = "Người nhận";
@@ -413,48 +650,59 @@ export class SingleZaloBotInstance {
           targetName = `Cloud của tôi (${this.connectedUserInfo?.name || "Chính bạn"})`;
         }
 
-        console.log(`[ZALO SEND - ${this.accountKey}] Gửi tới UID: ${targetId} (${targetName})`);
         await this.zaloApi.sendMessage({ msg: message }, targetId, ThreadType.User);
         return {
           success: true,
           recipient: targetName,
-          message: `Đã gửi trực tiếp 1-chạm qua Zalo tới ${targetName} thành công!`,
+          message: `Đã gửi thành công qua Zalo tới ${targetName}!`,
         };
       }
 
-      // 3. Gửi theo Số điện thoại
+      // 3. GỬI THEO SỐ ĐIỆN THOẠI (KHỚP CHÍNH XÁC 100%, KHÔNG KHỚP ĐUÔI 8 SỐ)
       if (!phone) {
-        return { success: false, error: "Thiếu số điện thoại hoặc ID nhóm người nhận.", message: "Thiếu thông tin người nhận" };
+        return {
+          success: false,
+          error: "Thiếu số điện thoại hoặc ID nhóm người nhận.",
+          message: "Thiếu thông tin người nhận",
+        };
       }
 
-      const cleanPhone = phone.replace(/[^0-9]/g, "");
-      const phoneWith84 = cleanPhone.startsWith("0") ? "84" + cleanPhone.slice(1) : cleanPhone;
-      const phoneWith0 = cleanPhone.startsWith("84") ? "0" + cleanPhone.slice(2) : cleanPhone;
+      const targetNorm = normalizeVnPhoneDigits(phone);
+      if (!targetNorm.rawDigits || targetNorm.rawDigits.length < 9) {
+        return {
+          success: false,
+          error: `Số điện thoại "${phone}" không hợp lệ.`,
+          message: "SĐT không hợp lệ",
+        };
+      }
 
       let targetUid: string | null = null;
       let targetName: string | null = null;
 
-      // Kiểm tra Cloud của tôi
-      if (this.connectedUserInfo) {
-        const myPhone = (this.connectedUserInfo.phone || "").replace(/[^0-9]/g, "");
-        if (myPhone && (myPhone === cleanPhone || myPhone === phoneWith0 || myPhone === phoneWith84)) {
+      // Kiểm tra nếu gửi cho chính số của mình -> Cloud của tôi
+      if (this.connectedUserInfo?.phone) {
+        const myNorm = normalizeVnPhoneDigits(this.connectedUserInfo.phone);
+        if (
+          myNorm.phone0 &&
+          (myNorm.phone0 === targetNorm.phone0 || myNorm.phone84 === targetNorm.phone84)
+        ) {
           targetUid = this.connectedUserInfo.id;
           targetName = `Cloud của tôi (${this.connectedUserInfo.name})`;
         }
       }
 
-      // Tra cứu danh bạ bạn bè trước
+      // Tra cứu danh bạ bạn bè theo số điện thoại khớp chính xác
       if (!targetUid && this.zaloApi.getAllFriends) {
         try {
           const friends = await this.zaloApi.getAllFriends();
           if (Array.isArray(friends)) {
             const matched = friends.find((f: any) => {
-              const fPhone = (f.phoneNumber || "").replace(/[^0-9]/g, "");
+              const fNorm = normalizeVnPhoneDigits(f.phoneNumber || "");
+              if (!fNorm.rawDigits) return false;
               return (
-                fPhone === cleanPhone ||
-                fPhone === phoneWith0 ||
-                fPhone === phoneWith84 ||
-                (cleanPhone.length >= 8 && fPhone.endsWith(cleanPhone.slice(-8)))
+                fNorm.phone0 === targetNorm.phone0 ||
+                fNorm.phone84 === targetNorm.phone84 ||
+                fNorm.rawDigits === targetNorm.rawDigits
               );
             });
             if (matched) {
@@ -465,24 +713,24 @@ export class SingleZaloBotInstance {
         } catch (_fErr) {}
       }
 
-      // Tra cứu qua findUser 84
-      if (!targetUid && this.zaloApi.findUser) {
+      // Tra cứu qua findUser(84...)
+      if (!targetUid && this.zaloApi.findUser && targetNorm.phone84) {
         try {
-          const res84 = await this.zaloApi.findUser(phoneWith84);
+          const res84 = await this.zaloApi.findUser(targetNorm.phone84);
           if (res84 && (res84.uid || res84.userId)) {
             targetUid = res84.uid || res84.userId;
-            targetName = res84.display_name || res84.displayName || phone;
+            targetName = res84.display_name || res84.displayName || res84.zalo_name || phone;
           }
         } catch (_e1) {}
       }
 
-      // Tra cứu qua findUser 0
-      if (!targetUid && this.zaloApi.findUser) {
+      // Tra cứu qua findUser(0...)
+      if (!targetUid && this.zaloApi.findUser && targetNorm.phone0) {
         try {
-          const res0 = await this.zaloApi.findUser(phoneWith0);
+          const res0 = await this.zaloApi.findUser(targetNorm.phone0);
           if (res0 && (res0.uid || res0.userId)) {
             targetUid = res0.uid || res0.userId;
-            targetName = res0.display_name || res0.displayName || phone;
+            targetName = res0.display_name || res0.displayName || res0.zalo_name || phone;
           }
         } catch (_e2) {}
       }
@@ -490,9 +738,10 @@ export class SingleZaloBotInstance {
       // Fallback getMultiUsersByPhones
       if (!targetUid && this.zaloApi.getMultiUsersByPhones) {
         try {
-          const multi = await this.zaloApi.getMultiUsersByPhones([phoneWith84, phoneWith0]);
+          const queryList = [targetNorm.phone84, targetNorm.phone0].filter(Boolean);
+          const multi = await this.zaloApi.getMultiUsersByPhones(queryList);
           if (multi && typeof multi === "object") {
-            const u = multi[phoneWith84] || multi[phoneWith0];
+            const u = multi[targetNorm.phone84] || multi[targetNorm.phone0];
             if (u && (u.uid || u.userId)) {
               targetUid = u.uid || u.userId;
               targetName = u.display_name || u.displayName || phone;
@@ -504,96 +753,103 @@ export class SingleZaloBotInstance {
       if (!targetUid) {
         return {
           success: false,
-          error: `Không tìm thấy tài khoản Zalo với SĐT ${phone}. Nguyên nhân: Người nhận có thể đang tắt tính năng 'Cho phép tìm kiếm bằng SĐT' trong Cài đặt riêng tư của Zalo.`,
-          message: `Không tìm thấy UID cho SĐT ${phone}`,
+          error: `Không tìm thấy tài khoản Zalo với SĐT ${phone} từ tài khoản (${this.connectedUserInfo?.name || this.accountKey}). Nguyên nhân có thể do phụ huynh chưa kết bạn hoặc đang tắt 'Cho phép tìm kiếm qua SĐT'.`,
+          message: `Không tìm thấy Zalo cho SĐT ${phone}`,
         };
       }
 
-      console.log(`[ZALO SEND - ${this.accountKey}] Đang gửi tới: ${targetName} (${targetUid})...`);
       await this.zaloApi.sendMessage({ msg: message }, targetUid, ThreadType.User);
-      console.log(`[ZALO SEND - ${this.accountKey}] Gửi thành công tới: ${targetName}!`);
-
       return {
         success: true,
         recipient: targetName || phone,
-        message: `Đã gửi trực tiếp 1-chạm qua Zalo tới ${targetName || phone} thành công!`,
+        message: `Đã gửi thành công qua Zalo tới ${targetName || phone}!`,
       };
     } catch (err: any) {
       console.error(`[ZALO SEND ERROR - ${this.accountKey}]`, err);
+      const errMsg = err?.message || "Lỗi không xác định";
       return {
         success: false,
-        error: `Lỗi khi gửi qua Zalo: ${err?.message || "Người nhận có thể đang bật chặn tin nhắn từ người lạ"}`,
-        message: "Lỗi gửi tin",
+        error: `Gửi Zalo thất bại từ tài khoản ${this.connectedUserInfo?.name || this.accountKey}: ${errMsg}`,
+        message: "Gửi tin Zalo thất bại",
       };
     }
   }
 
-  // Đăng xuất và xóa phiên riêng của tài khoản này
-  public disconnect() {
+  public async disconnect() {
     this.zaloApi = null;
     this.connectedUserInfo = null;
     this.currentQrStatus = "idle";
     this.currentQrCode = null;
     this.isLoggingIn = false;
     this.qrGeneratedAt = 0;
-    try {
-      if (fs.existsSync(this.sessionFile)) {
-        fs.unlinkSync(this.sessionFile);
-      }
-    } catch (e) {}
-    try {
-      if (fs.existsSync(this.sessionBakFile)) {
-        fs.unlinkSync(this.sessionBakFile);
-      }
-    } catch (e) {}
-    console.log(`[ZALO BOT - ${this.accountKey.toUpperCase()}] Đã ngắt kết nối và xóa session file!`);
+    this.restorePromise = null;
+    this.hasAttemptedRestore = true;
+    await this.deleteSessionStorage();
     return { success: true };
   }
 }
 
 /**
- * Quản lý đa tài khoản Bot Zalo (Multi-Account Bot Manager)
- * Đảm bảo sự độc lập cho từng tài khoản Admin, Giáo viên, Trợ giảng
+ * Quản lý đa Bot Zalo ĐỘC LẬP TUYỆT ĐỐI theo từng tài khoản người dùng.
+ * Không gộp chung các giáo viên/trợ giảng vào cùng 1 bot và không tự động gửi ké qua nick người khác.
  */
 export class MultiZaloBotManager {
   private instances: Map<string, SingleZaloBotInstance> = new Map();
 
-  constructor() {
-    // Khởi tạo sẵn 3 bot độc lập cho 3 vai trò nòng cốt của trung tâm
-    this.getBotInstance("admin", "ADMIN");
-    this.getBotInstance("assistant", "ASSISTANT");
-    this.getBotInstance("teacher", "TEACHER");
+  private resolveKeyAndRole(
+    accountId?: string,
+    role?: string,
+    phone?: string
+  ): { key: string; normalizedRole: "ADMIN" | "TEACHER" | "ASSISTANT" } {
+    const cleanRoleRaw = (role || "").toUpperCase();
+    const normalizedRole: "ADMIN" | "TEACHER" | "ASSISTANT" =
+      cleanRoleRaw === "ASSISTANT"
+        ? "ASSISTANT"
+        : cleanRoleRaw === "TEACHER"
+        ? "TEACHER"
+        : "ADMIN";
+
+    const cleanAcc = (accountId || "").trim().toLowerCase();
+    const cleanDigits = (phone || "").replace(/[^0-9]/g, "");
+
+    // Nếu client truyền accountId định danh cụ thể (VD: teacher_0912345678, assistant_staff-ta1, admin)
+    if (cleanAcc && cleanAcc !== "teacher" && cleanAcc !== "assistant") {
+      if (cleanAcc === "admin" || cleanAcc === "hotline") {
+        return { key: "admin", normalizedRole: "ADMIN" };
+      }
+      const safe = cleanAcc.replace(/[^a-z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
+      if (safe) {
+        const inferredRole: "ADMIN" | "TEACHER" | "ASSISTANT" = safe.startsWith("assistant")
+          ? "ASSISTANT"
+          : safe.startsWith("teacher")
+          ? "TEACHER"
+          : normalizedRole;
+        return { key: safe, normalizedRole: inferredRole };
+      }
+    }
+
+    if (normalizedRole === "ADMIN") {
+      return { key: "admin", normalizedRole: "ADMIN" };
+    }
+
+    if (cleanDigits) {
+      return {
+        key: `${normalizedRole.toLowerCase()}_${cleanDigits}`,
+        normalizedRole,
+      };
+    }
+
+    return { key: normalizedRole.toLowerCase(), normalizedRole };
   }
 
-  // Lấy hoặc tạo mới bot instance theo accountId / role / phone (đảm bảo tính độc lập tuyệt đối giữa các vai trò)
   public getBotInstance(
     accountId?: string,
     role?: string,
     phone?: string
   ): SingleZaloBotInstance {
-    let key = "admin";
-    let normalizedRole: "ADMIN" | "TEACHER" | "ASSISTANT" = "ADMIN";
-
-    const cleanRole = (role || "").toUpperCase();
-    const cleanAcc = (accountId || "").toLowerCase();
-
-    if (cleanRole === "ASSISTANT" || cleanAcc === "assistant" || cleanAcc.includes("assistant") || cleanAcc.includes("ta")) {
-      key = "assistant";
-      normalizedRole = "ASSISTANT";
-    } else if (cleanRole === "TEACHER" || cleanAcc === "teacher" || cleanAcc.includes("teacher")) {
-      key = "teacher";
-      normalizedRole = "TEACHER";
-    } else if (cleanRole === "ADMIN" || cleanAcc === "admin" || cleanAcc.includes("admin") || cleanAcc.includes("hotline")) {
-      key = "admin";
-      normalizedRole = "ADMIN";
-    } else if (phone) {
-      key = phone.replace(/[^0-9]/g, "");
-    } else if (accountId) {
-      key = cleanAcc;
-    }
+    const { key, normalizedRole } = this.resolveKeyAndRole(accountId, role, phone);
 
     if (!this.instances.has(key)) {
-      console.log(`[MULTI ZALO MANAGER] Khởi tạo Bot Instance mới cho: key=${key}, role=${normalizedRole}`);
       const newBot = new SingleZaloBotInstance(key, normalizedRole);
       this.instances.set(key, newBot);
     }
@@ -601,8 +857,8 @@ export class MultiZaloBotManager {
     return this.instances.get(key)!;
   }
 
-  // Gửi tin nhắn thông minh: ưu tiên bot riêng của người gửi; nếu bot riêng thất bại hoặc chưa kết nối sẽ tự động fallback sang Bot Hotline Admin
-  public async sendMessageWithFallback(params: {
+  // Gửi trực tiếp bằng ĐÚNG bot của tài khoản đang đăng nhập — tuyệt đối KHÔNG fallback sang tài khoản khác
+  public async sendMessageFromAccount(params: {
     phone?: string;
     userId?: string;
     groupId?: string;
@@ -615,59 +871,26 @@ export class MultiZaloBotManager {
     senderPhone?: string;
   }) {
     const senderBot = this.getBotInstance(params.accountId, params.senderRole, params.senderPhone);
-    const adminBot = this.getBotInstance("admin", "ADMIN");
-
-    // 1. Thử gửi bằng bot riêng của người gửi nếu đã kết nối
-    if (senderBot.getStatus().isConnected) {
-      console.log(`[MULTI ZALO] Gửi bằng Bot riêng của [${senderBot.accountKey.toUpperCase()}]`);
-      const res = await senderBot.sendMessage(params);
-      if (res.success) {
-        return res;
-      }
-
-      console.warn(`[MULTI ZALO] Bot riêng [${senderBot.accountKey}] gửi không thành công (${res.error}), kích hoạt fallback tự động...`);
-      // Nếu bot riêng gửi thất bại (ví dụ: chưa vào nhóm lớp hoặc chưa có bạn bè phụ huynh trên nick này),
-      // tự động fallback sang Bot Hotline Trung Tâm (Admin)
-      if (adminBot.getStatus().isConnected && senderBot !== adminBot) {
-        console.log(`[MULTI ZALO] Tự động Fallback sang Bot Hotline [ADMIN] để tin nhắn không bị kẹt...`);
-        const fallbackRes = await adminBot.sendMessage(params);
-        if (fallbackRes.success) {
-          return {
-            ...fallbackRes,
-            message: `${fallbackRes.message} (Chuyển tiếp tự động qua Bot Hotline Trung Tâm)`,
-          };
-        }
-      }
-      return res;
-    }
-
-    // 2. Nếu bot riêng chưa kết nối, thử fallback ngay sang bot Admin (Hotline Trung Tâm)
-    if (adminBot.getStatus().isConnected && senderBot !== adminBot) {
-      console.log(`[MULTI ZALO] Bot [${senderBot.accountKey}] chưa kết nối -> Tự động Fallback gửi qua Bot Hotline [ADMIN]`);
-      const res = await adminBot.sendMessage(params);
-      if (res.success) {
-        return {
-          ...res,
-          message: `${res.message} (Gửi tự động qua Bot Hotline Trung Tâm)`,
-        };
-      }
-    }
-
-    // 3. Nếu cả 2 đều chưa kết nối, trả về thông báo yêu cầu kết nối
     return await senderBot.sendMessage(params);
   }
 
-  // Danh sách trạng thái của tất cả các bot đang chạy
-  public getAllStatus() {
-    const result: Record<string, any> = {};
-    this.instances.forEach((bot, key) => {
-      result[key] = bot.getStatus();
-    });
-    return result;
+  // Giữ tương thích tên hàm cũ nếu có nơi gọi, nhưng KHÔNG fallback chéo tài khoản
+  public async sendMessageWithFallback(params: {
+    phone?: string;
+    userId?: string;
+    groupId?: string;
+    groupUrl?: string;
+    groupName?: string;
+    className?: string;
+    message: string;
+    accountId?: string;
+    senderRole?: string;
+    senderPhone?: string;
+  }) {
+    return await this.sendMessageFromAccount(params);
   }
 }
 
-// Singleton pattern trên globalThis để không bị Next.js HMR tạo nhiều instance
 const globalForMultiZalo = globalThis as unknown as {
   multiZaloBotManagerInstance?: MultiZaloBotManager;
 };
@@ -679,5 +902,4 @@ if (process.env.NODE_ENV !== "production") {
   globalForMultiZalo.multiZaloBotManagerInstance = multiZaloBotManager;
 }
 
-// Backward compatibility alias: bot mặc định (admin)
 export const zaloBotService = multiZaloBotManager.getBotInstance("admin", "ADMIN");

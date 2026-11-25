@@ -120,7 +120,13 @@ export default function AttendanceManager({
     sendZaloMessageToParent,
     sendZaloClassGroupMessage,
     renderZaloTemplate,
+    userAccounts,
   } = useCenter();
+
+  const adminHotline = useMemo(() => {
+    const adminAcc = userAccounts.find((a) => a.role === "ADMIN");
+    return adminAcc?.phone || "0964645174";
+  }, [userAccounts]);
 
   const isReadOnly = userRole !== "ASSISTANT";
 
@@ -490,8 +496,19 @@ export default function AttendanceManager({
 
   const handleSetStatus = (studentId: string, status: AttendanceStatus) => {
     if (isReadOnly) return;
+    const DEFAULT_ABSENT_NOTE = "Đã đến giờ học nhưng thầy cô chưa thấy con đến lớp ạ";
     setFormEntries((prev) =>
-      prev.map((entry) => (entry.studentId === studentId ? { ...entry, status } : entry))
+      prev.map((entry) => {
+        if (entry.studentId !== studentId) return entry;
+        if (status === "ABSENT") {
+          return {
+            ...entry,
+            status,
+            note: entry.note && entry.note.trim() ? entry.note : DEFAULT_ABSENT_NOTE,
+          };
+        }
+        return { ...entry, status };
+      })
     );
     if (status === "ABSENT") {
       setExpandedStudentId(studentId);
@@ -528,7 +545,7 @@ export default function AttendanceManager({
         className: currentClass?.name || "Lớp học",
         dateStr: selectedDateStr,
         assistantName: effectiveAssistant || "Trợ giảng lớp",
-        centerHotline: "0964.645.174",
+        centerHotline: adminHotline,
       });
       if (entryNote && !content.includes(entryNote)) {
         content = `${content}\n• Ghi chú / Tình trạng: ${entryNote}`;
@@ -553,27 +570,31 @@ export default function AttendanceManager({
     });
   };
 
-  // Xác nhận gửi tin báo vắng Zalo đã qua chỉnh sửa (Tự động gửi 100%, không cần Ctrl+V)
+  // Xác nhận gửi tin báo vắng Zalo đã qua chỉnh sửa
   const handleConfirmSendAbsentZalo = async (editedContent: string) => {
     if (!editZaloModal) return;
-    if (editZaloModal.parentPhone) {
-      await sendZaloMessageToParent({
-        recipientPhone: editZaloModal.parentPhone,
-        recipientName: editZaloModal.parentName,
-        studentName: editZaloModal.studentName,
-        className: editZaloModal.className,
-        messageType: "ATTENDANCE",
-        title: `Báo Vắng Buổi Học: ${editZaloModal.studentName}`,
-        content: editedContent,
-        openChatWindow: false,
-        senderRole: (userRole as any) || "ASSISTANT",
-        senderStaffId: currentStaffId || activeStaff.id,
-        senderName: activeStaff.fullName,
-        senderPhone: activeStaff.phone,
-      });
+    if (!editZaloModal.parentPhone) {
+      setSaveSuccessMessage(`⚠️ Phụ huynh bé ${editZaloModal.studentName} chưa có số điện thoại Zalo.`);
+      setTimeout(() => setSaveSuccessMessage(null), 4500);
+      setEditZaloModal(null);
+      return;
     }
-    setSaveSuccessMessage(`⚡ Đã tự động gửi tin nhắn báo vắng tới PH bé ${editZaloModal.studentName} qua Zalo thành công!`);
-    setTimeout(() => setSaveSuccessMessage(null), 4500);
+    const res = await sendZaloMessageToParent({
+      recipientPhone: editZaloModal.parentPhone,
+      recipientName: editZaloModal.parentName,
+      studentName: editZaloModal.studentName,
+      className: editZaloModal.className,
+      messageType: "ATTENDANCE",
+      title: `Báo Vắng Buổi Học: ${editZaloModal.studentName}`,
+      content: editedContent,
+      openChatWindow: false,
+      senderRole: (userRole as any) || "ASSISTANT",
+      senderStaffId: currentStaffId || activeStaff.id,
+      senderName: activeStaff.fullName,
+      senderPhone: activeStaff.phone,
+    });
+    setSaveSuccessMessage(res.success ? `✅ ${res.message}` : `⚠️ ${res.message}`);
+    setTimeout(() => setSaveSuccessMessage(null), 5000);
     setEditZaloModal(null);
   };
 
@@ -620,7 +641,7 @@ export default function AttendanceManager({
         presentPercent: String(attendanceRate),
         absentCount: String(absentCount),
         absentListSection: absentSection,
-        hotline: "0964 645 174",
+        hotline: adminHotline,
       });
     } catch {
       return generateAttendanceGroupReportZaloMessage({
@@ -754,7 +775,7 @@ export default function AttendanceManager({
       effectiveAssistant
     );
 
-    // 🚀 TÍNH NĂNG MỚI: LẬP TỨC GỬI THÔNG TIN ĐIỂM DANH VÀO NHÓM LỚP QUA BOT ZALO
+    // 🚀 TỰ ĐỘNG GỬI BÁO CÁO ĐIỂM DANH VÀO NHÓM LỚP QUA BOT ZALO RIÊNG CỦA NGƯỜI DÙNG
     let autoZaloNote = "";
     if (autoSendZaloGroup) {
       try {
@@ -766,7 +787,9 @@ export default function AttendanceManager({
           currentStaffId || activeStaff.id
         );
         if (res.success) {
-          autoZaloNote = ` 💬 Đồng thời đã lập tức gửi báo cáo điểm danh vào nhóm Zalo lớp ${currentClass.name}!`;
+          autoZaloNote = ` 💬 Đã gửi báo cáo điểm danh vào nhóm Zalo lớp ${currentClass.name}!`;
+        } else {
+          autoZaloNote = ` ⚠️ Lưu ý Zalo: ${res.message}`;
         }
       } catch (_e) {
         console.warn("Lỗi tự động gửi nhóm Zalo sau điểm danh:", _e);
@@ -804,7 +827,9 @@ export default function AttendanceManager({
           currentStaffId || activeStaff.id
         );
         if (res.success) {
-          autoZaloNote = ` 💬 Đồng thời đã gửi báo cáo ca bù vào nhóm Zalo!`;
+          autoZaloNote = ` 💬 Đã gửi báo cáo ca bù vào nhóm Zalo!`;
+        } else {
+          autoZaloNote = ` ⚠️ Lưu ý Zalo: ${res.message}`;
         }
       } catch (_e) {}
     }
@@ -1677,6 +1702,9 @@ export default function AttendanceManager({
           className={editZaloModal.className}
           initialContent={editZaloModal.initialContent}
           templateBadge="Báo Vắng Điểm Danh"
+          senderRole={(userRole as any) || "ASSISTANT"}
+          senderStaffId={currentStaffId || activeStaff.id}
+          senderPhone={activeStaff.phone}
           onSend={handleConfirmSendAbsentZalo}
         />
       )}
@@ -1696,6 +1724,8 @@ export default function AttendanceManager({
           initialGroupUrl={groupZaloModal.initialGroupUrl}
           initialGroupId={groupZaloModal.initialGroupId}
           senderRole={(userRole as any) || "ASSISTANT"}
+          senderStaffId={currentStaffId || activeStaff.id}
+          senderPhone={activeStaff.phone}
           onSend={handleConfirmSendGroupZalo}
         />
       )}
