@@ -51,14 +51,12 @@ export default function ClassesManager() {
 
   // Class Form State
   const [formData, setFormData] = useState({
-    code: "",
     name: "",
     courseId: courses[0]?.id || "",
     classroom: classrooms[0]?.name || "Phòng Shiny 201",
     teacherId: staff.find(s => s.role === "TEACHER")?.id || "",
     assistantId: staff.find(s => s.role === "ASSISTANT")?.id || "",
-    monthlyFee: 1600000,
-    feePerLesson: 200000,
+    feePerLesson: courses[0]?.standardFeePerLesson || 200000,
     colorTheme: "blue",
     zaloGroupUrl: "",
   });
@@ -72,12 +70,14 @@ export default function ClassesManager() {
   const assistants = staff.filter(s => s.role === "ASSISTANT");
 
   const filteredClasses = classes.filter(cls => {
+    const q = searchQuery.toLowerCase();
     return (
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.teacherName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.assistantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.classroom.toLowerCase().includes(searchQuery.toLowerCase())
+      cls.name.toLowerCase().includes(q) ||
+      (cls.code || "").toLowerCase().includes(q) ||
+      cls.teacherName.toLowerCase().includes(q) ||
+      cls.assistantName.toLowerCase().includes(q) ||
+      cls.classroom.toLowerCase().includes(q) ||
+      cls.schedules.some((s) => (s.classroom || "").toLowerCase().includes(q))
     );
   });
 
@@ -92,14 +92,12 @@ export default function ClassesManager() {
     const defaultClassroom = classrooms[0]?.name || "Phòng Shiny 201";
 
     setFormData({
-      code: "",
       name: "",
       courseId: courses[0]?.id || "",
       classroom: defaultClassroom,
       teacherId: defaultTeacherId,
       assistantId: defaultAssistantId,
-      monthlyFee: courses[0]?.monthlyFee || 1600000,
-      feePerLesson: courses[0]?.standardFeePerLesson || 200000,
+      feePerLesson: courses[0]?.standardFeePerLesson || (courses[0]?.monthlyFee ? Math.round(courses[0].monthlyFee / 8) : 200000),
       colorTheme: unusedTheme.id,
       zaloGroupUrl: "",
     });
@@ -137,14 +135,12 @@ export default function ClassesManager() {
     setIsPerScheduleStaff(hasPerSchedule);
 
     setFormData({
-      code: cls.code,
       name: cls.name,
       courseId: cls.courseId,
       classroom: cls.classroom,
       teacherId: cls.teacherId,
       assistantId: cls.assistantId,
-      monthlyFee: cls.monthlyFee || (cls.feePerLesson ? cls.feePerLesson * 8 : 1600000),
-      feePerLesson: cls.feePerLesson || 200000,
+      feePerLesson: cls.feePerLesson || (cls.monthlyFee ? Math.round(cls.monthlyFee / 8) : 200000),
       colorTheme: cls.colorTheme || "blue",
       zaloGroupUrl: cls.zaloGroupUrl || "",
     });
@@ -206,7 +202,7 @@ export default function ClassesManager() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.code) return;
+    if (!formData.name) return;
 
     // KIỂM TRA TRÙNG MÀU LỚP HỌC TRÊN TKB
     const duplicateColorClass = classes.find(
@@ -221,8 +217,9 @@ export default function ClassesManager() {
     const selectedTeacher = staff.find(s => s.id === formData.teacherId);
     const selectedAssistant = staff.find(s => s.id === formData.assistantId);
 
-    // Chuẩn hóa danh sách schedules theo chế độ phân công
+    // Chuẩn hóa danh sách schedules theo chế độ phân công (luôn giữ phòng học riêng theo từng buổi)
     const normalizedSchedules: ScheduleSlot[] = scheduleSlots.map((slot) => {
+      const slotClassroom = slot.classroom || formData.classroom || classrooms[0]?.name || "";
       if (!isPerScheduleStaff) {
         return {
           id: slot.id,
@@ -234,7 +231,7 @@ export default function ClassesManager() {
           teacherName: selectedTeacher ? selectedTeacher.fullName : "Chưa phân công",
           assistantId: formData.assistantId,
           assistantName: selectedAssistant ? selectedAssistant.fullName : "Chưa phân công",
-          classroom: formData.classroom,
+          classroom: slotClassroom,
         };
       }
 
@@ -250,7 +247,7 @@ export default function ClassesManager() {
         teacherName: slotTeacher ? slotTeacher.fullName : "Chưa phân công",
         assistantId: slotAssistant ? slotAssistant.id : formData.assistantId,
         assistantName: slotAssistant ? slotAssistant.fullName : "Chưa phân công",
-        classroom: slot.classroom || formData.classroom,
+        classroom: slotClassroom,
       };
     });
 
@@ -270,19 +267,21 @@ export default function ClassesManager() {
       return;
     }
 
+    const feePerLesson = Math.max(0, Number(formData.feePerLesson) || 0);
+    const defaultRoom = normalizedSchedules[0]?.classroom || formData.classroom || classrooms[0]?.name || "";
+
     const payload = {
-      code: formData.code.toUpperCase(),
       name: formData.name,
       courseId: formData.courseId,
       courseName: selectedCourse ? selectedCourse.name : "Khóa học chuẩn",
-      classroom: formData.classroom,
+      classroom: defaultRoom,
       teacherId: formData.teacherId,
       teacherName: selectedTeacher ? selectedTeacher.fullName : "Chưa phân công",
       assistantId: formData.assistantId,
       assistantName: selectedAssistant ? selectedAssistant.fullName : "Chưa phân công",
       schedules: normalizedSchedules,
-      monthlyFee: Number(formData.monthlyFee),
-      feePerLesson: Math.round(Number(formData.monthlyFee) / 8),
+      feePerLesson,
+      monthlyFee: feePerLesson * 8,
       colorTheme: formData.colorTheme,
       zaloGroupUrl: formData.zaloGroupUrl?.trim() || undefined,
     };
@@ -304,7 +303,7 @@ export default function ClassesManager() {
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Tìm theo tên lớp, mã lớp, giáo viên, phòng học..."
+            placeholder="Tìm theo tên lớp, giáo viên, phòng học..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20"
@@ -333,21 +332,21 @@ export default function ClassesManager() {
           <table className="w-full text-left text-xs min-w-[900px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="py-3.5 px-4 min-w-[200px]">Mã & Tên Lớp Học</th>
+                <th className="py-3.5 px-4 min-w-[200px]">Tên Lớp Học</th>
                 <th className="py-3.5 px-4 min-w-[170px]">Chương Trình</th>
                 <th className="py-3.5 px-4 min-w-[190px]">Thời Khóa Biểu Trong Tuần</th>
                 <th className="py-3.5 px-4 min-w-[190px]">Giáo Viên & Trợ Giảng</th>
                 <th className="py-3.5 px-4 min-w-[180px] whitespace-nowrap">Nhóm Zalo Lớp</th>
                 <th className="py-3.5 px-4 min-w-[200px] whitespace-nowrap">Phòng Học</th>
                 <th className="py-3.5 px-4 w-[110px] text-center whitespace-nowrap">Học Sinh</th>
-                <th className="py-3.5 px-4 w-[130px] whitespace-nowrap">Học Phí / Tháng</th>
+                <th className="py-3.5 px-4 w-[130px] whitespace-nowrap">Học Phí / Buổi</th>
                 <th className="py-3.5 px-4 w-[100px] text-right whitespace-nowrap">Thao Tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredClasses.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400 text-xs italic">
+                  <td colSpan={9} className="py-8 text-center text-slate-400 text-xs italic">
                     Chưa có lớp học nào trong danh sách. Bấm &quot;+ Thêm Lớp Mới&quot; để tạo lớp học.
                   </td>
                 </tr>
@@ -359,12 +358,7 @@ export default function ClassesManager() {
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2">
                         <span className={`w-2.5 h-2.5 rounded-full ${theme.dot} shrink-0`} />
-                        <div>
-                          <span className="font-mono font-bold text-[11px] text-slate-500 uppercase tracking-wider">
-                            {cls.code}
-                          </span>
-                          <div className="font-bold text-slate-900 mt-0.5">{cls.name}</div>
-                        </div>
+                        <div className="font-bold text-slate-900">{cls.name}</div>
                       </div>
                     </td>
 
@@ -469,11 +463,35 @@ export default function ClassesManager() {
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="font-medium text-slate-800 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
-                        <DoorOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        {cls.classroom}
-                      </span>
+                    <td className="py-3.5 px-4">
+                      {(() => {
+                        const distinctRooms = Array.from(
+                          new Set(cls.schedules.map((s) => s.classroom || cls.classroom))
+                        );
+                        if (distinctRooms.length > 1) {
+                          return (
+                            <div className="space-y-1">
+                              {cls.schedules.map((sch) => (
+                                <div key={sch.id} className="text-[11px] flex items-center gap-1.5 whitespace-nowrap">
+                                  <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    {sch.dayLabel}:
+                                  </span>
+                                  <span className="font-medium text-slate-800 inline-flex items-center gap-1">
+                                    <DoorOpen className="w-3 h-3 text-amber-500 shrink-0" />
+                                    {sch.classroom || cls.classroom}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return (
+                          <span className="font-medium text-slate-800 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200 inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <DoorOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            {distinctRooms[0] || cls.classroom}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
@@ -490,7 +508,7 @@ export default function ClassesManager() {
 
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span className="font-bold text-amber-600 font-mono">
-                        {(cls.monthlyFee || (cls.feePerLesson ? cls.feePerLesson * 8 : 1600000)).toLocaleString("vi-VN")} đ
+                        {(cls.feePerLesson || (cls.monthlyFee ? Math.round(cls.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ / buổi
                       </span>
                     </td>
 
@@ -571,29 +589,16 @@ export default function ClassesManager() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Mã lớp học *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: SHINY-STAR-02"
-                    value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Tên lớp học *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: Shiny Star 02 (Kids)"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  />
-                </div>
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Tên lớp học *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: Shiny Star 02 (Kids)"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -607,8 +612,9 @@ export default function ClassesManager() {
                       setFormData({ 
                         ...formData, 
                         courseId: cId,
-                        monthlyFee: course ? (course.monthlyFee || 1600000) : formData.monthlyFee,
-                        feePerLesson: course ? (course.standardFeePerLesson || 200000) : formData.feePerLesson
+                        feePerLesson: course
+                          ? (course.standardFeePerLesson || (course.monthlyFee ? Math.round(course.monthlyFee / 8) : 200000))
+                          : formData.feePerLesson
                       });
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
@@ -743,6 +749,32 @@ export default function ClassesManager() {
                         )}
                       </div>
 
+                      {/* Chọn phòng học riêng cho buổi học này (Ví dụ: Thứ 2 Tầng 3, Thứ 4 Tầng 5) */}
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100">
+                        <label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1 shrink-0">
+                          <DoorOpen className="w-3.5 h-3.5 text-amber-500" /> Phòng học ({slot.dayLabel}):
+                        </label>
+                        <select
+                          value={slot.classroom || formData.classroom}
+                          onChange={(e) => {
+                            setConflictError(null);
+                            handleUpdateSlot(slot.id, "classroom", e.target.value);
+                          }}
+                          className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800"
+                        >
+                          {classrooms.length === 0 && (
+                            <option value={slot.classroom || formData.classroom || ""}>
+                              {slot.classroom || formData.classroom || "Chưa có phòng học (hãy tạo ở tab Phòng học)"}
+                            </option>
+                          )}
+                          {classrooms.map((cr) => (
+                            <option key={cr.id} value={cr.name}>
+                              {cr.name} (Sức chứa: {cr.capacity})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Phân công riêng GV & TA cho buổi này nếu bật isPerScheduleStaff */}
                       {isPerScheduleStaff && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100">
@@ -840,30 +872,45 @@ export default function ClassesManager() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Phòng học *</label>
+                  <label className="font-semibold text-slate-700 block mb-1">Phòng học mặc định *</label>
                   <select
                     value={formData.classroom}
                     onChange={(e) => {
+                      const nextRoom = e.target.value;
                       setConflictError(null);
-                      setFormData({ ...formData, classroom: e.target.value });
+                      setFormData({ ...formData, classroom: nextRoom });
+                      setScheduleSlots((slots) =>
+                        slots.map((s) =>
+                          !s.classroom || s.classroom === formData.classroom
+                            ? { ...s, classroom: nextRoom }
+                            : s
+                        )
+                      );
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
                   >
+                    {classrooms.length === 0 && (
+                      <option value="">-- Chưa có phòng học --</option>
+                    )}
                     {classrooms.map((cr) => (
                       <option key={cr.id} value={cr.name}>
                         {cr.name} (Sức chứa: {cr.capacity})
                       </option>
                     ))}
                   </select>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Có thể đổi phòng riêng từng thứ ở danh sách buổi học phía trên.
+                  </p>
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Học phí hàng tháng (VNĐ / Tháng) *</label>
+                  <label className="font-semibold text-slate-700 block mb-1">Học phí 1 buổi (VNĐ / Buổi) *</label>
                   <input
                     type="number"
-                    step={50000}
-                    value={formData.monthlyFee}
-                    onChange={(e) => setFormData({ ...formData, monthlyFee: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    step="any"
+                    min={0}
+                    value={formData.feePerLesson}
+                    onChange={(e) => setFormData({ ...formData, feePerLesson: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-mono font-bold"
                   />
                 </div>
               </div>
@@ -930,15 +977,12 @@ export default function ClassesManager() {
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                    {viewingStudentsClass.code}
-                  </span>
                   <h3 className="font-bold text-base text-slate-900">
                     Danh Sách Học Sinh: {viewingStudentsClass.name}
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Phòng: {viewingStudentsClass.classroom} • GV: {viewingStudentsClass.teacherName} • TA: {viewingStudentsClass.assistantName}
+                  Phòng: {Array.from(new Set(viewingStudentsClass.schedules.map((s) => s.classroom || viewingStudentsClass.classroom))).join(" / ") || viewingStudentsClass.classroom} • GV: {viewingStudentsClass.teacherName} • TA: {viewingStudentsClass.assistantName}
                 </p>
               </div>
               <button
@@ -971,7 +1015,7 @@ export default function ClassesManager() {
                       Tổng số học viên đang theo học: <strong className="text-emerald-700 font-bold">{enrolledStudents.length} học sinh</strong>
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      Học phí: {(viewingStudentsClass.monthlyFee || (viewingStudentsClass.feePerLesson ? viewingStudentsClass.feePerLesson * 8 : 1600000)).toLocaleString("vi-VN")} đ / tháng
+                      Học phí: {(viewingStudentsClass.feePerLesson || (viewingStudentsClass.monthlyFee ? Math.round(viewingStudentsClass.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ / buổi
                     </span>
                   </div>
 

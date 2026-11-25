@@ -304,11 +304,10 @@ export default function WorkbookCheckManager({
             <div>
               <div className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
                 <span>{currentClass?.name}</span>
-                <span className="text-[10px] font-mono text-slate-400">({currentClass?.code})</span>
               </div>
               <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                 <span className="flex items-center gap-0.5">
-                  <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.classroom}
+                  <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.schedules.find((s) => s.dayOfWeek === (new Date(selectedDateStr + "T00:00:00").getDay() === 0 ? 8 : new Date(selectedDateStr + "T00:00:00").getDay() + 1))?.classroom || currentClass?.classroom}
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-0.5">

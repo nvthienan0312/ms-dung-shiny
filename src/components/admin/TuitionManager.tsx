@@ -294,7 +294,7 @@ export default function TuitionManager() {
 
     const { lessonCount } = calculateMonthLessons(selectedMonth, targetClass.schedules);
     const actualLessons = lessonCount > 0 ? lessonCount : 8;
-    const fee = targetClass.feePerLesson || 200000;
+    const fee = targetClass.feePerLesson || (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
 
     setEditLessons(actualLessons);
     setEditFeePerLesson(fee);
@@ -893,13 +893,13 @@ export default function TuitionManager() {
             if (!currentClass) return null;
             const { lessonCount, lessonDates } = calculateMonthLessons(selectedMonth, currentClass.schedules);
             const actualCount = lessonCount > 0 ? lessonCount : 8;
-            const fee = currentClass.feePerLesson || 200000;
+            const fee = currentClass.feePerLesson || (currentClass.monthlyFee ? Math.round(currentClass.monthlyFee / 8) : 200000);
 
             return (
               <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                 <div className="space-y-0.5">
                   <div className="font-bold text-amber-950 flex items-center gap-2">
-                    <span>{currentClass.name} ({currentClass.code})</span>
+                    <span>{currentClass.name}</span>
                     <span className="text-[11px] font-normal text-slate-600">
                       — GV: {currentClass.teacherName} | TA: {currentClass.assistantName}
                     </span>
@@ -2107,7 +2107,7 @@ export default function TuitionManager() {
                   </label>
                   <input
                     type="number"
-                    step="10000"
+                    step="any"
                     value={editFeePerLesson}
                     onChange={(e) => setEditFeePerLesson(parseInt(e.target.value, 10) || 0)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -2138,7 +2138,7 @@ export default function TuitionManager() {
                     <input
                       type="number"
                       min="0"
-                      step="10000"
+                      step="any"
                       value={editSurcharge || ""}
                       onChange={(e) => setEditSurcharge(Math.max(0, parseInt(e.target.value, 10) || 0))}
                       placeholder="0"
@@ -2175,7 +2175,7 @@ export default function TuitionManager() {
                     <input
                       type="number"
                       min="0"
-                      step="10000"
+                      step="any"
                       value={editDiscount || ""}
                       onChange={(e) => setEditDiscount(Math.max(0, parseInt(e.target.value, 10) || 0))}
                       placeholder="0"

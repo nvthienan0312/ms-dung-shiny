@@ -809,7 +809,7 @@ export default function ClassLogManager({
                         </span>
                       </div>
                       <div className={`text-[10px] flex items-center gap-1 mt-0.5 ${isSelected ? "text-slate-300" : "text-slate-500"}`}>
-                        <span>{item.classItem.classroom}</span>
+                        <span>{item.schedule.classroom || item.classItem.classroom}</span>
                         <span>•</span>
                         {item.isPublished ? (
                           <span className="text-emerald-400 font-semibold">Đã gửi phụ huynh</span>
@@ -850,11 +850,10 @@ export default function ClassLogManager({
                 <div>
                   <div className="font-bold text-sm text-slate-900 leading-tight flex items-center gap-1.5">
                     <span>{currentClass?.name}</span>
-                    <span className="text-[10px] font-mono text-slate-500 font-normal">({currentClass?.code})</span>
                   </div>
                   <div className="text-[11px] text-slate-600 flex items-center gap-2 mt-0.5">
                     <span className="flex items-center gap-0.5">
-                      <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.classroom}
+                      <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.schedules.find((s) => s.dayOfWeek === dayOfWeek)?.classroom || currentClass?.classroom}
                     </span>
                     <span>•</span>
                     <span className="flex items-center gap-0.5">

@@ -101,6 +101,8 @@ export default function StaffManager() {
     e.preventDefault();
     if (!formData.fullName || !formData.email) return;
 
+    const rate = Number(formData.hourlyRate);
+
     if (editingStaffId) {
       updateStaff(editingStaffId, {
         fullName: formData.fullName,
@@ -108,7 +110,7 @@ export default function StaffManager() {
         phone: formData.phone || "0900 000 000",
         role: formData.role,
         specialty: formData.specialty,
-        hourlyRate: Number(formData.hourlyRate) || 0,
+        hourlyRate: isNaN(rate) ? 0 : rate,
       });
     } else {
       addStaff({
@@ -117,7 +119,7 @@ export default function StaffManager() {
         phone: formData.phone || "0900 000 000",
         role: formData.role,
         specialty: formData.specialty || (formData.role === "TEACHER" ? "Giáo viên tiếng Anh" : "Trợ giảng"),
-        hourlyRate: Number(formData.hourlyRate) || (formData.role === "TEACHER" ? 250000 : 80000),
+        hourlyRate: !isNaN(rate) && formData.hourlyRate !== undefined ? rate : (formData.role === "TEACHER" ? 250000 : 80000),
         avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(formData.fullName)}`,
         status: "ACTIVE",
       });
@@ -355,7 +357,7 @@ export default function StaffManager() {
                                 key={cls.id}
                                 className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200"
                               >
-                                {cls.code}
+                                {cls.name}
                               </span>
                             ))}
                           </div>
@@ -564,15 +566,17 @@ export default function StaffManager() {
                     type="number"
                     required
                     min={0}
-                    step={5000}
-                    placeholder="VD: 250000"
+                    step="any"
+                    placeholder="VD: 250000 hoặc 82500"
                     value={formData.hourlyRate}
-                    onChange={(e) => setFormData({ ...formData, hourlyRate: Number(e.target.value) })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, hourlyRate: Number(e.target.value) });
+                    }}
                     className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-mono font-bold text-slate-800"
                   />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Mức thù lao phục vụ tự động tính bảng chấm công và bảng lương theo giờ dạy/trực.
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Mức thù lao phục vụ tự động tính bảng chấm công và bảng lương theo giờ dạy/trực (có thể nhập bất kỳ số tiền nào).
                 </p>
               </div>
 

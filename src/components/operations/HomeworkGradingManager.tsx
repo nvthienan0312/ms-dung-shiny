@@ -332,7 +332,7 @@ export default function HomeworkGradingManager({
               >
                 {accessibleClasses.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.code})
+                    {c.name}
                   </option>
                 ))}
               </select>

@@ -23,11 +23,11 @@ export interface ClassroomItem {
 
 export interface CourseItem {
   id: string;
-  code: string;
+  code?: string; // Không bắt buộc (giữ để tương thích dữ liệu cũ)
   name: string;
   level: "KIDS" | "PRIMARY" | "SECONDARY" | "IELTS" | "COMMUNICATION";
-  monthlyFee: number; // Học phí tính theo tháng (VNĐ/tháng)
-  standardFeePerLesson?: number; // Giữ để tương thích ngược
+  monthlyFee?: number; // Tương thích ngược
+  standardFeePerLesson?: number; // Học phí chuẩn tính theo buổi (VNĐ/buổi)
   description: string;
 }
 
@@ -50,14 +50,19 @@ export interface StudentItem {
   id: string;
   studentCode: string;
   fullName: string;
-  dob: string;
+  dob: string; // Năm sinh (VD: "2019") hoặc YYYY-MM-DD ở dữ liệu cũ
+  birthYear?: string; // Năm sinh rõ ràng (VD: "2019")
   gender: "Nam" | "Nữ";
   parentName: string;
   parentPhone: string;
-  parentEmail: string;
+  parentEmail?: string; // Không bắt buộc (đã thay thế hiển thị bằng note)
+  note?: string;        // Ghi chú học sinh (VD: "em trai Tuấn Vũ K2")
   classId?: string;
   className?: string;
-  monthlyFee: number;           // Học phí theo tháng (VNĐ/tháng, ví dụ: 1.600.000)
+  monthlyFee?: number;          // Tương thích ngược
+  feePerLesson?: number;        // Học phí theo buổi (VNĐ/buổi, VD: 200.000)
+  fixedDiscount?: number;       // Giảm trừ học phí cố định hàng tháng (VNĐ)
+  fixedDiscountNote?: string;   // Lý do giảm trừ cố định (VD: "Ưu đãi anh chị em học cùng")
   tuitionStatus: TuitionStatus; // "PAID" (Đã đóng tháng này) | "UNPAID" (Chưa đóng) | "OVERDUE" (Quá hạn)
   currentBillingMonth: string;  // Kỳ học phí hiện tại (ví dụ: "Tháng 11/2026")
   lastPaidMonth?: string;       // Tháng nộp gần nhất (ví dụ: "Tháng 11/2026")
@@ -71,19 +76,19 @@ export interface StudentItem {
 
 export interface ClassItem {
   id: string;
-  code: string;
+  code?: string; // Không bắt buộc (giữ để tương thích dữ liệu cũ)
   name: string;
   courseId: string;
   courseName: string;
-  classroom: string;          // Trung tâm chỉ có 1 cơ sở duy nhất, quản lý theo Phòng học
+  classroom: string;          // Phòng học mặc định (có thể cấu hình riêng theo từng buổi trong schedules)
   teacherId: string;
   teacherName: string;
   assistantId: string;
   assistantName: string;
-  schedules: ScheduleSlot[]; // Hỗ trợ nhiều ngày trong tuần với giờ khác nhau
+  schedules: ScheduleSlot[]; // Hỗ trợ nhiều ngày trong tuần với giờ, GV/TA và phòng học riêng
   currentStudents: number;    // Đếm số học sinh trong lớp
-  monthlyFee: number;         // Học phí tính theo tháng (VNĐ/tháng)
-  feePerLesson?: number;      // Giữ để tương thích ngược
+  monthlyFee?: number;        // Tương thích ngược
+  feePerLesson?: number;      // Học phí tính theo buổi (VNĐ/buổi)
   colorTheme: string;         // Mã màu hiển thị trên TKB để phân biệt rõ từng lớp
   zaloGroupUrl?: string;      // Link nhóm Zalo của lớp (VD: "https://zalo.me/g/shinystarters01")
   zaloGroupId?: string;       // ID nhóm Zalo thật của bot để tự động gửi trực tiếp 100% không cần Ctrl+V
@@ -310,8 +315,12 @@ export interface HomeworkSubmission {
   submissionType: HomeworkSubmissionType;
   mediaTitle: string;
   mediaUrl?: string;
+  mediaStorageKey?: string;      // Khóa lưu Blob Video/Audio trong IndexedDB
+  mediaMimeType?: string;        // MIME type (video/mp4, audio/mpeg, ...)
   mediaDuration?: string;
   workbookImageUrl?: string;     // [MỚI] Ảnh bài tập sách / vở viết nếu nộp BOTH hoặc WORKBOOK
+  workbookStorageKey?: string;   // Khóa lưu Blob ảnh/file Workbook trong IndexedDB
+  workbookMimeType?: string;     // MIME type tệp Workbook
   workbookImageFileName?: string;// [MỚI] Tên file ảnh sách bài tập
   workbookFileSize?: string;     // [MỚI] Dung lượng tệp sách bài tập
   attachmentFileName?: string;   // [MỚI] Tệp đính kèm từ máy tính / điện thoại
@@ -696,52 +705,9 @@ export function getUniqueClassTheme(classItem: ClassItem, allClasses: ClassItem[
   return map.get(classItem.id) || CLASS_THEMES[0];
 }
 
-export const INITIAL_CLASSROOMS: ClassroomItem[] = [
-  { id: "room-1", name: "Phòng Shiny 101", capacity: 16, equipment: "Điều hòa, Smart TV 65 inch, Bảng từ", notes: "Phù hợp lớp Teens & Giao tiếp" },
-  { id: "room-2", name: "Phòng Shiny 201 (Smart TV)", capacity: 15, equipment: "Smart TV, Thảm sàn Kids, Đồ dùng trực quan", notes: "Chuyên dụng lớp Shiny Kids" },
-  { id: "room-3", name: "Phòng Shiny 202 (Giao tiếp)", capacity: 14, equipment: "Điều hòa, Máy chiếu, Loa trợ giảng", notes: "Lớp học tiêu chuẩn" },
-  { id: "room-4", name: "Phòng VIP Lab 301", capacity: 12, equipment: "Tai nghe chuyên dụng IELTS, Máy tính giáo viên, Bảng thông minh", notes: "Phòng luyện thi IELTS & Test đầu vào" },
-  { id: "room-5", name: "Phòng Shiny Kids 302", capacity: 12, equipment: "Đồ chơi phát âm Phonics, Bàn ghế mầm non", notes: "Dành riêng cho bé 4 - 6 tuổi" },
-];
+export const INITIAL_CLASSROOMS: ClassroomItem[] = [];
 
-export const INITIAL_COURSES: CourseItem[] = [
-  {
-    id: "crs-1",
-    code: "KIDS-STARTER",
-    name: "Shiny Kids Starter (4 - 6 tuổi)",
-    level: "KIDS",
-    monthlyFee: 1600000,
-    standardFeePerLesson: 200000,
-    description: "Khơi gợi niềm đam mê tiếng Anh, làm quen ngữ âm Phonics chuẩn Cambridge.",
-  },
-  {
-    id: "crs-2",
-    code: "TEENS-EXP",
-    name: "Shiny Teens Explorer (11 - 15 tuổi)",
-    level: "SECONDARY",
-    monthlyFee: 1800000,
-    standardFeePerLesson: 220000,
-    description: "Củng cố ngữ pháp chuyên sâu, rèn luyện 4 kỹ năng chuẩn bị thi vào trường chuyên.",
-  },
-  {
-    id: "crs-3",
-    code: "IELTS-INTENS",
-    name: "IELTS Intensive 6.5+ Target",
-    level: "IELTS",
-    monthlyFee: 2400000,
-    standardFeePerLesson: 300000,
-    description: "Chiến thuật làm bài Writing & Speaking nâng cao, rèn phản xạ học thuật.",
-  },
-  {
-    id: "crs-4",
-    code: "COMM-PRO",
-    name: "Tiếng Anh Giao Tiếp Phản Xạ 1-1",
-    level: "COMMUNICATION",
-    monthlyFee: 2000000,
-    standardFeePerLesson: 250000,
-    description: "Thực hành phản xạ đàm thoại với giáo viên nước ngoài và trợ giảng kèm cặp.",
-  },
-];
+export const INITIAL_COURSES: CourseItem[] = [];
 
 export const INITIAL_STAFF: StaffItem[] = [];
 export const INITIAL_CLASSES: ClassItem[] = [];

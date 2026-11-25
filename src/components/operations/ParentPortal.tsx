@@ -1163,7 +1163,7 @@ export default function ParentPortal() {
 
             <div className="flex items-center gap-2 text-xs">
               <span className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-slate-800 font-semibold flex items-center gap-1.5 shadow-2xs">
-                <DoorOpen className="w-4 h-4 text-amber-600" /> {activeClass?.classroom || "Phòng Shiny 201"}
+                <DoorOpen className="w-4 h-4 text-amber-600" /> {Array.from(new Set((activeClass?.schedules || []).map((s) => s.classroom || activeClass?.classroom).filter(Boolean))).join(" / ") || activeClass?.classroom || "Phòng học"}
               </span>
               <span className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-slate-800 font-semibold flex items-center gap-1.5 shadow-2xs">
                 <GraduationCap className="w-4 h-4 text-purple-600" /> {classTeacher.fullName}
@@ -1227,7 +1227,7 @@ export default function ParentPortal() {
                             {matchedSlot.startTime} - {matchedSlot.endTime}
                           </span>
                           <div className="text-[10.5px] font-semibold text-slate-800 line-clamp-1">
-                            {activeClass?.classroom?.split("(")[0] || "Phòng Shiny"}
+                            {(matchedSlot.classroom || activeClass?.classroom || "Phòng học").split("(")[0]}
                           </div>
                         </div>
                       ) : (
@@ -1274,8 +1274,8 @@ export default function ParentPortal() {
 
                   <div className="text-xs space-y-1.5 pt-1">
                     <div className="text-slate-800 flex items-center justify-between">
-                      <span className="text-slate-500">Phòng học Smart TV:</span>
-                      <strong className="text-slate-900">{activeClass?.classroom || "Phòng Shiny 201"}</strong>
+                      <span className="text-slate-500">Phòng học:</span>
+                      <strong className="text-slate-900">{slot.classroom || activeClass?.classroom || "Phòng học"}</strong>
                     </div>
                     <div className="text-slate-800 flex items-center justify-between">
                       <span className="text-slate-500">Giáo viên đứng lớp:</span>
@@ -1707,7 +1707,7 @@ export default function ParentPortal() {
                     Học Phí Định Kỳ Theo Tháng
                   </h4>
                   <span className="text-xs font-mono font-bold text-emerald-600">
-                    {(activeStudent?.monthlyFee || 1600000).toLocaleString("vi-VN")} đ/tháng
+                    {(currentTuitionBill?.feePerLesson || activeStudent?.feePerLesson || activeClass?.feePerLesson || (activeStudent?.monthlyFee ? Math.round(activeStudent.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
                   </span>
                 </div>
 

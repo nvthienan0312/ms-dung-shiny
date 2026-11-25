@@ -320,9 +320,6 @@ export default function StaffClassTransferModal({
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-xs text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
-                              {cls.code}
-                            </span>
                             <span className="font-bold text-xs text-slate-900 truncate">
                               {cls.name}
                             </span>

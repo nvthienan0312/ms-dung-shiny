@@ -141,7 +141,7 @@ export function getMonthlyAbsentStatistics(
       id: att.id,
       dateStr: att.dateStr,
       classId: att.classId,
-      className: cls ? `${cls.name} (${cls.code})` : "Lớp học",
+      className: cls ? cls.name : "Lớp học",
       note: att.note || "Nghỉ học có phép",
       status: sessionStatus,
       makeupClassId: matchedMakeupClass?.id,

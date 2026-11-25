@@ -1016,17 +1016,15 @@ export default function AttendanceManager({
                 <div>
                   <div className="font-black text-sm sm:text-base text-slate-900 leading-tight flex items-center gap-1.5 flex-wrap">
                     <span>{isMakeupSession ? activeMakeupClass?.title : currentClass?.name}</span>
-                    {isMakeupSession ? (
+                    {isMakeupSession && (
                       <span className="text-[10.5px] font-extrabold bg-purple-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
                         ⚡ LỚP HỌC BÙ TRONG THÁNG
                       </span>
-                    ) : (
-                      <span className="text-[10px] font-mono text-slate-500 font-normal">({currentClass?.code})</span>
                     )}
                   </div>
                   <div className="text-[11px] text-slate-600 flex items-center gap-2 mt-0.5 flex-wrap">
                     <span className="flex items-center gap-0.5">
-                      <DoorOpen className="w-3 h-3 text-slate-400" /> {isMakeupSession ? activeMakeupClass?.classroomName : currentClass?.classroom}
+                      <DoorOpen className="w-3 h-3 text-slate-400" /> {isMakeupSession ? activeMakeupClass?.classroomName : (activeSessionItem?.roomName || currentClass?.classroom)}
                     </span>
                     <span>•</span>
                     <span className="flex items-center gap-0.5">

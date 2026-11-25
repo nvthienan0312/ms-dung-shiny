@@ -415,7 +415,6 @@ export default function MonthlyExamReportManager({
               >
                 <span className={`w-2 h-2 rounded-full ${theme.dot}`} />
                 <span className="text-xs font-bold">{cls.name}</span>
-                <span className="text-[10px] text-slate-400 font-mono">({cls.code})</span>
               </button>
             );
           })}

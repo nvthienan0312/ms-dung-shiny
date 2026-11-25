@@ -85,7 +85,7 @@ export default function StudentsManager() {
     parentPhone: "",
     parentEmail: "",
     classId: classes[0]?.id || "",
-    monthlyFee: 1600000,
+    feePerLesson: classes[0]?.feePerLesson || (classes[0]?.monthlyFee ? Math.round(classes[0].monthlyFee / 8) : 200000),
     tuitionStatus: "PAID" as "PAID" | "UNPAID" | "OVERDUE",
     currentBillingMonth: "Tháng 11/2026",
     tuitionDueDate: "10/11/2026",
@@ -128,6 +128,7 @@ export default function StudentsManager() {
 
   const handleOpenCreate = () => {
     setEditingStudentId(null);
+    const defaultClass = classes[0];
     setFormData({
       fullName: "",
       dob: "2020-01-01",
@@ -135,8 +136,8 @@ export default function StudentsManager() {
       parentName: "",
       parentPhone: "",
       parentEmail: "",
-      classId: classes[0]?.id || "",
-      monthlyFee: 1600000,
+      classId: defaultClass?.id || "",
+      feePerLesson: defaultClass?.feePerLesson || (defaultClass?.monthlyFee ? Math.round(defaultClass.monthlyFee / 8) : 200000),
       tuitionStatus: "PAID",
       currentBillingMonth: "Tháng 11/2026",
       tuitionDueDate: "10/11/2026",
@@ -146,15 +147,20 @@ export default function StudentsManager() {
 
   const handleOpenEdit = (stu: StudentItem) => {
     setEditingStudentId(stu.id);
+    const stuClass = classes.find((c) => c.id === stu.classId);
+    const resolvedFeePerLesson =
+      stu.feePerLesson ||
+      stuClass?.feePerLesson ||
+      (stu.monthlyFee ? Math.round(stu.monthlyFee / 8) : 200000);
     setFormData({
       fullName: stu.fullName,
       dob: stu.dob,
       gender: stu.gender,
       parentName: stu.parentName,
       parentPhone: stu.parentPhone,
-      parentEmail: stu.parentEmail,
+      parentEmail: stu.parentEmail || "",
       classId: stu.classId || "",
-      monthlyFee: stu.monthlyFee || 1600000,
+      feePerLesson: resolvedFeePerLesson,
       tuitionStatus: stu.tuitionStatus || "PAID",
       currentBillingMonth: stu.currentBillingMonth || "Tháng 11/2026",
       tuitionDueDate: stu.tuitionDueDate || "10/11/2026",
@@ -167,6 +173,7 @@ export default function StudentsManager() {
     if (!formData.fullName || !formData.parentPhone) return;
 
     const selectedCls = classes.find((c) => c.id === formData.classId);
+    const feePerLesson = Math.max(0, Number(formData.feePerLesson) || 0);
 
     if (editingStudentId) {
       updateStudent(editingStudentId, {
@@ -178,7 +185,8 @@ export default function StudentsManager() {
         parentEmail: formData.parentEmail,
         classId: formData.classId || undefined,
         className: selectedCls ? selectedCls.name : undefined,
-        monthlyFee: Number(formData.monthlyFee),
+        feePerLesson,
+        monthlyFee: feePerLesson * 8,
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -195,7 +203,8 @@ export default function StudentsManager() {
         parentEmail: formData.parentEmail,
         classId: formData.classId || undefined,
         className: selectedCls ? selectedCls.name : undefined,
-        monthlyFee: Number(formData.monthlyFee),
+        feePerLesson,
+        monthlyFee: feePerLesson * 8,
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -524,7 +533,7 @@ Trân trọng cảm ơn Ba Mẹ!`;
                           {stu.tuitionStatus === "PAID" ? "✓ Đã đóng T11" : stu.tuitionStatus === "OVERDUE" ? "Quá hạn T11" : "Chưa đóng T11"}
                         </span>
                         <div className="text-[10.5px] text-slate-500 font-mono">
-                          {(stu.monthlyFee || 1600000).toLocaleString("vi-VN")} đ/tháng
+                          {(stu.feePerLesson || (stu.monthlyFee ? Math.round(stu.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
                         </div>
                       </div>
                     ) : (
@@ -793,7 +802,7 @@ Trân trọng cảm ơn Ba Mẹ!`;
                       setFormData({ 
                         ...formData, 
                         classId: cId,
-                        monthlyFee: cls ? (cls.monthlyFee || 1600000) : formData.monthlyFee 
+                        feePerLesson: cls ? (cls.feePerLesson || (cls.monthlyFee ? Math.round(cls.monthlyFee / 8) : 200000)) : formData.feePerLesson 
                       });
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
@@ -807,12 +816,13 @@ Trân trọng cảm ơn Ba Mẹ!`;
                   </select>
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Học phí / tháng (VNĐ)</label>
+                  <label className="font-semibold text-slate-700 block mb-1">Học phí / buổi (VNĐ)</label>
                   <input
                     type="number"
-                    step={50000}
-                    value={formData.monthlyFee}
-                    onChange={(e) => setFormData({ ...formData, monthlyFee: Number(e.target.value) })}
+                    step="any"
+                    min={0}
+                    value={formData.feePerLesson}
+                    onChange={(e) => setFormData({ ...formData, feePerLesson: Number(e.target.value) })}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   />
                 </div>

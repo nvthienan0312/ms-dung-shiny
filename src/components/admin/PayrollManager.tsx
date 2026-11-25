@@ -1029,9 +1029,12 @@ export default function PayrollManager() {
                 <label className="font-semibold text-slate-700 block mb-1">Đơn giá theo giờ (VNĐ):</label>
                 <input
                   type="number"
-                  step="10000"
+                  step="any"
+                  min={0}
                   value={editRate}
-                  onChange={(e) => setEditRate(parseInt(e.target.value, 10) || 0)}
+                  onChange={(e) => {
+                    setEditRate(parseInt(e.target.value, 10) || 0);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono font-bold text-slate-900"
                 />
               </div>
@@ -1040,9 +1043,12 @@ export default function PayrollManager() {
                 <label className="font-semibold text-slate-700 block mb-1">Phụ cấp đi lại (VNĐ):</label>
                 <input
                   type="number"
-                  step="50000"
+                  step="any"
+                  min={0}
                   value={editAllowance}
-                  onChange={(e) => setEditAllowance(parseInt(e.target.value, 10) || 0)}
+                  onChange={(e) => {
+                    setEditAllowance(parseInt(e.target.value, 10) || 0);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono font-bold text-emerald-800"
                 />
               </div>
@@ -1051,9 +1057,12 @@ export default function PayrollManager() {
                 <label className="font-semibold text-slate-700 block mb-1">Phụ cấp công việc (VNĐ):</label>
                 <input
                   type="number"
-                  step="50000"
+                  step="any"
+                  min={0}
                   value={editBonus}
-                  onChange={(e) => setEditBonus(parseInt(e.target.value, 10) || 0)}
+                  onChange={(e) => {
+                    setEditBonus(parseInt(e.target.value, 10) || 0);
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono font-bold text-emerald-800"
                 />
               </div>

@@ -188,9 +188,9 @@ interface CenterContextType {
   updateAssignment: (id: string, updates: Partial<AssignmentItem>) => void;
   deleteAssignment: (id: string) => void;
 
-  // Homework Submissions (Nộp bài tập trực tuyến & Trợ giảng chấm)
+  // Homework Submissions (Nộp bài tập trực tuyến & Trợ giảng kiểm tra)
   submitHomework: (submission: Omit<HomeworkSubmission, "id" | "submittedAt" | "status">) => HomeworkSubmission;
-  gradeHomeworkSubmission: (submissionId: string, score: number, taFeedback: string, gradedBy: string) => void;
+  gradeHomeworkSubmission: (submissionId: string, score: number | undefined, taFeedback: string, gradedBy: string) => void;
 
   // Parent Leave Requests (Phụ huynh xin nghỉ phép & bảo lưu buổi học)
   submitLeaveRequest: (request: Omit<ParentLeaveRequest, "id" | "submittedAt" | "status">) => ParentLeaveRequest;
@@ -367,6 +367,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (parsed.courses && Array.isArray(parsed.courses)) setCourses(parsed.courses);
+      else setCourses([]);
       if (parsed.staff && Array.isArray(parsed.staff)) setStaff(parsed.staff);
       else setStaff([]);
       
@@ -377,6 +378,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (parsed.classrooms && Array.isArray(parsed.classrooms)) setClassrooms(parsed.classrooms);
+      else setClassrooms([]);
       if (parsed.substitutions && Array.isArray(parsed.substitutions)) setSubstitutions(parsed.substitutions);
       else setSubstitutions([]);
       
@@ -570,6 +572,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           applyDataPayload(localParsed);
         } else {
           setClasses(INITIAL_CLASSES);
+          setCourses(INITIAL_COURSES);
+          setClassrooms(INITIAL_CLASSROOMS);
           setStaff(INITIAL_STAFF);
           setStudents(INITIAL_STUDENTS);
           setUserAccounts(INITIAL_USER_ACCOUNTS);
@@ -1002,6 +1006,46 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
+    // 4b. Tự động cập nhật hóa đơn chưa thanh toán nếu Admin thay đổi giảm trừ cố định hoặc đơn giá buổi
+    if (
+      updatedStu.fixedDiscount !== undefined ||
+      updatedStu.fixedDiscountNote !== undefined ||
+      updatedStu.feePerLesson !== undefined
+    ) {
+      const nextFeePerLesson = updatedStu.feePerLesson ?? currentStu?.feePerLesson;
+      const nextFixedDiscount = Math.max(0, updatedStu.fixedDiscount ?? currentStu?.fixedDiscount ?? 0);
+      const nextFixedDiscountNote =
+        (updatedStu.fixedDiscountNote ?? currentStu?.fixedDiscountNote)?.trim() ||
+        (nextFixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
+
+      setStudentTuitionBills((prev) =>
+        prev.map((bill) => {
+          if (bill.studentId !== id || bill.status === "PAID") return bill;
+          const isManualCustomDiscount =
+            (bill.discount || 0) > 0 &&
+            Boolean(bill.discountNote) &&
+            !bill.discountNote?.includes("cố định") &&
+            bill.discountNote !== oldStudent?.fixedDiscountNote;
+
+          const effectiveFee = nextFeePerLesson || bill.feePerLesson;
+          const calculatedAmount = bill.lessonCount * effectiveFee;
+          const sur = bill.surcharge || 0;
+          const disc = isManualCustomDiscount ? (bill.discount || 0) : nextFixedDiscount;
+          const discNote = isManualCustomDiscount ? bill.discountNote : nextFixedDiscountNote;
+          const adj = sur - disc;
+          return {
+            ...bill,
+            feePerLesson: effectiveFee,
+            calculatedAmount,
+            discount: disc,
+            discountNote: discNote,
+            adjustmentAmount: adj,
+            finalAmount: Math.max(0, calculatedAmount + adj),
+          };
+        })
+      );
+    }
+
     // 5. Đồng bộ tên học sinh nếu đổi tên
     if (updatedStu.fullName && sName) {
       setAttendance((prev) =>
@@ -1282,10 +1326,16 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     const oldRoom = classrooms.find((r) => r.id === id);
     setClassrooms((prev) => prev.map((r) => (r.id === id ? { ...r, ...updatedRoom } : r)));
 
-    // If room name changed, update classes using that room
+    // If room name changed, update classes and per-day schedules using that room
     if (oldRoom && updatedRoom.name && oldRoom.name !== updatedRoom.name) {
       setClasses((prev) =>
-        prev.map((cls) => (cls.classroom === oldRoom.name ? { ...cls, classroom: updatedRoom.name! } : cls))
+        prev.map((cls) => ({
+          ...cls,
+          classroom: cls.classroom === oldRoom.name ? updatedRoom.name! : cls.classroom,
+          schedules: cls.schedules.map((s) =>
+            s.classroom === oldRoom.name ? { ...s, classroom: updatedRoom.name! } : s
+          ),
+        }))
       );
     }
   };
@@ -1294,7 +1344,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     const room = classrooms.find((r) => r.id === id);
     if (!room) return { success: false, message: "Phòng học không tồn tại" };
 
-    const inUseByClass = classes.find((c) => c.classroom === room.name);
+    const inUseByClass = classes.find(
+      (c) => c.classroom === room.name || c.schedules.some((s) => s.classroom === room.name)
+    );
     if (inUseByClass) {
       return {
         success: false,
@@ -1615,7 +1667,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
   const gradeHomeworkSubmission = (
     submissionId: string,
-    score: number,
+    score: number | undefined,
     taFeedback: string,
     gradedBy: string
   ) => {
@@ -1625,7 +1677,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         return {
           ...sub,
           status: "GRADED",
-          score,
+          ...(score !== undefined ? { score } : { score: undefined }),
           taFeedback,
           gradedBy,
           gradedAt: new Date().toISOString(),
@@ -1737,8 +1789,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     // Tính số buổi trong tháng dựa trên thời khóa biểu của lớp
     const { lessonCount } = calculateMonthLessons(billingMonth, targetClass.schedules);
     const actualLessonCount = lessonCount > 0 ? lessonCount : 8;
-    const feePerLesson = targetClass.feePerLesson || 200000;
-    const calculatedAmount = actualLessonCount * feePerLesson;
+    const baseClassFeePerLesson =
+      targetClass.feePerLesson ||
+      (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
 
     // Hạn nộp chuẩn: ngày 10 của tháng đó
     const match = billingMonth.match(/(\d{1,2})\/(\d{4})/);
@@ -1751,6 +1804,13 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     setStudentTuitionBills((prev) => {
       const updated = [...prev];
       classStudents.forEach((stu) => {
+        const feePerLesson = stu.feePerLesson || baseClassFeePerLesson;
+        const calculatedAmount = actualLessonCount * feePerLesson;
+        const fixedDiscount = Math.max(0, stu.fixedDiscount || 0);
+        const fixedDiscountNote =
+          stu.fixedDiscountNote?.trim() ||
+          (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
+
         const existingIndex = updated.findIndex(
           (b) => b.studentId === stu.id && b.billingMonth === billingMonth
         );
@@ -1758,8 +1818,14 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           const existing = updated[existingIndex];
           if (existing.status !== "PAID") {
             const sur = existing.surcharge || 0;
-            const disc = existing.discount || 0;
-            const adj = existing.adjustmentAmount !== undefined ? existing.adjustmentAmount : (sur - disc);
+            const isManualCustomDiscount =
+              (existing.discount || 0) > 0 &&
+              Boolean(existing.discountNote) &&
+              !existing.discountNote?.includes("cố định") &&
+              existing.discountNote !== stu.fixedDiscountNote;
+            const disc = isManualCustomDiscount ? (existing.discount || 0) : fixedDiscount;
+            const discNote = isManualCustomDiscount ? existing.discountNote : fixedDiscountNote;
+            const adj = sur - disc;
             updated[existingIndex] = {
               ...existing,
               studentName: stu.fullName,
@@ -1770,8 +1836,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
               calculatedAmount,
               surcharge: sur,
               discount: disc,
+              discountNote: discNote,
               adjustmentAmount: adj,
-              finalAmount: calculatedAmount + adj,
+              finalAmount: Math.max(0, calculatedAmount + adj),
               dueDate,
             };
           } else {
@@ -1798,10 +1865,10 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
             calculatedAmount,
             surcharge: 0,
             surchargeNote: "",
-            discount: 0,
-            discountNote: "",
-            adjustmentAmount: 0,
-            finalAmount: calculatedAmount,
+            discount: fixedDiscount,
+            discountNote: fixedDiscountNote,
+            adjustmentAmount: -fixedDiscount,
+            finalAmount: Math.max(0, calculatedAmount - fixedDiscount),
             status: "DRAFT",
             dueDate,
             reminderSentCount: 0,
@@ -3225,7 +3292,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       !effectiveGroupUrl ||
       effectiveGroupUrl.includes("shinystar01") ||
       effectiveGroupUrl === "https://zalo.me" ||
-      effectiveGroupUrl.endsWith("/g/" + cls.code.toLowerCase());
+      (cls.code ? effectiveGroupUrl.endsWith("/g/" + cls.code.toLowerCase()) : false);
 
     const targetUrl = !isDummyUrl && (effectiveGroupUrl.startsWith("http://") || effectiveGroupUrl.startsWith("https://"))
       ? effectiveGroupUrl

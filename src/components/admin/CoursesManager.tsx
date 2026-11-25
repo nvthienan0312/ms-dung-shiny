@@ -14,27 +14,23 @@ export default function CoursesManager() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const [formData, setFormData] = useState({
-    code: "",
     name: "",
     level: "KIDS" as CourseItem["level"],
-    monthlyFee: 1600000,
     standardFeePerLesson: 200000,
     description: "",
   });
 
   const filteredCourses = courses.filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (c.code || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleOpenCreate = () => {
     setEditingCourseId(null);
     setFormData({
-      code: "",
       name: "",
       level: "KIDS",
-      monthlyFee: 1600000,
       standardFeePerLesson: 200000,
       description: "",
     });
@@ -43,12 +39,13 @@ export default function CoursesManager() {
 
   const handleOpenEdit = (course: CourseItem) => {
     setEditingCourseId(course.id);
+    const feePerLesson =
+      course.standardFeePerLesson ||
+      (course.monthlyFee ? Math.round(course.monthlyFee / 8) : 200000);
     setFormData({
-      code: course.code,
       name: course.name,
       level: course.level,
-      monthlyFee: course.monthlyFee || (course.standardFeePerLesson ? course.standardFeePerLesson * 8 : 1600000),
-      standardFeePerLesson: course.standardFeePerLesson || 200000,
+      standardFeePerLesson: feePerLesson,
       description: course.description,
     });
     setIsModalOpen(true);
@@ -56,24 +53,24 @@ export default function CoursesManager() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.code || !formData.name) return;
+    if (!formData.name) return;
+
+    const feePerLesson = Math.max(0, Number(formData.standardFeePerLesson) || 200000);
 
     if (editingCourseId) {
       updateCourse(editingCourseId, {
-        code: formData.code.toUpperCase(),
         name: formData.name,
         level: formData.level,
-        monthlyFee: Number(formData.monthlyFee),
-        standardFeePerLesson: Math.round(Number(formData.monthlyFee) / 8),
+        standardFeePerLesson: feePerLesson,
+        monthlyFee: feePerLesson * 8,
         description: formData.description,
       });
     } else {
       addCourse({
-        code: formData.code.toUpperCase(),
         name: formData.name,
         level: formData.level,
-        monthlyFee: Number(formData.monthlyFee),
-        standardFeePerLesson: Math.round(Number(formData.monthlyFee) / 8),
+        standardFeePerLesson: feePerLesson,
+        monthlyFee: feePerLesson * 8,
         description: formData.description || "Khóa học chất lượng cao tại Ms. Dung Shiny",
       });
     }
@@ -133,9 +130,9 @@ export default function CoursesManager() {
           <table className="w-full text-left text-xs min-w-[750px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="py-3.5 px-4">Mã & Tên Chương Trình</th>
+                <th className="py-3.5 px-4">Tên Chương Trình</th>
                 <th className="py-3.5 px-4">Cấp Độ Đào Tạo</th>
-                <th className="py-3.5 px-4">Học Phí / Tháng (VNĐ)</th>
+                <th className="py-3.5 px-4">Học Phí / Buổi (VNĐ)</th>
                 <th className="py-3.5 px-4">Lớp Học Áp Dụng</th>
                 <th className="py-3.5 px-4">Mục Tiêu / Mô Tả</th>
                 <th className="py-3.5 px-4 text-right">Thao Tác</th>
@@ -144,13 +141,13 @@ export default function CoursesManager() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredCourses.map((course) => {
                 const classesInCourse = classes.filter((c) => c.courseId === course.id);
+                const feePerLesson =
+                  course.standardFeePerLesson ||
+                  (course.monthlyFee ? Math.round(course.monthlyFee / 8) : 200000);
                 return (
                   <tr key={course.id} className="hover:bg-slate-50/80 transition">
                     <td className="py-3.5 px-4">
-                      <span className="font-mono font-bold text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase">
-                        {course.code}
-                      </span>
-                      <div className="font-bold text-slate-900 mt-1">{course.name}</div>
+                      <div className="font-bold text-slate-900">{course.name}</div>
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -162,7 +159,7 @@ export default function CoursesManager() {
                     <td className="py-3.5 px-4">
                       <span className="font-bold text-amber-600 text-xs flex items-center gap-1">
                         <Coins className="w-3.5 h-3.5" />
-                        {(course.monthlyFee || (course.standardFeePerLesson ? course.standardFeePerLesson * 8 : 1600000)).toLocaleString("vi-VN")} đ / tháng
+                        {feePerLesson.toLocaleString("vi-VN")} đ / buổi
                       </span>
                     </td>
 
@@ -249,18 +246,19 @@ export default function CoursesManager() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Tên chương trình đào tạo *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: Tiếng Anh Mầm Non Shiny Kids"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Mã chương trình *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: STARTER-KIDS"
-                    value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  />
-                </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Cấp độ</label>
                   <select
@@ -275,30 +273,19 @@ export default function CoursesManager() {
                     <option value="COMMUNICATION">COMMUNICATION</option>
                   </select>
                 </div>
-              </div>
 
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Tên chương trình đào tạo *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="VD: Tiếng Anh Mầm Non Shiny Kids"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Học phí theo tháng (VNĐ / Tháng) *</label>
-                <input
-                  type="number"
-                  step={50000}
-                  required
-                  value={formData.monthlyFee}
-                  onChange={(e) => setFormData({ ...formData, monthlyFee: Number(e.target.value) })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                />
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Học phí / buổi (VNĐ / Buổi) *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    required
+                    value={formData.standardFeePerLesson}
+                    onChange={(e) => setFormData({ ...formData, standardFeePerLesson: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-mono font-bold"
+                  />
+                </div>
               </div>
 
               <div>

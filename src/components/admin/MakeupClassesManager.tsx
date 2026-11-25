@@ -1351,7 +1351,7 @@ export default function MakeupClassesManager() {
                   <option value="ALL">Ghép liên lớp (Tất cả các lớp / Học sinh mọi trình độ)</option>
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.code}) - {c.courseName}
+                      {c.name} - {c.courseName}
                     </option>
                   ))}
                 </select>

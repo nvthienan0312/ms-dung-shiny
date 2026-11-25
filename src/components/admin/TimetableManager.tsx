@@ -466,7 +466,6 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
               >
                 <span className={`w-2 h-2 rounded-full ${theme.dot} shrink-0`} />
                 <span className="font-bold text-slate-900">{cls.name}</span>
-                <span className="font-mono text-[9px] text-slate-500">({cls.code})</span>
               </div>
             );
           })}
@@ -681,9 +680,6 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
                                         <Clock className="w-2.5 h-2.5 shrink-0" />
                                         {item.schedule.startTime}-{item.schedule.endTime}
                                       </span>
-                                      <span className="text-[8.5px] font-mono text-slate-600 font-bold bg-white/80 px-1 py-0.2 rounded border border-slate-200/50 shrink-0">
-                                        {item.classItem?.code}
-                                      </span>
                                     </div>
 
                                     {/* Tên lớp */}
@@ -738,9 +734,9 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
 
                                     {/* Phòng học & Sĩ số */}
                                     <div className="flex items-center justify-between text-[9px] text-slate-600 pt-0.5 border-t border-slate-200/60 pl-1">
-                                      <span className="font-medium truncate flex items-center gap-0.5" title={item.classItem?.classroom}>
+                                      <span className="font-medium truncate flex items-center gap-0.5" title={item.schedule.classroom || item.classItem?.classroom}>
                                         <DoorOpen className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                                        <span className="truncate">{item.classItem?.classroom}</span>
+                                        <span className="truncate">{item.schedule.classroom || item.classItem?.classroom}</span>
                                       </span>
                                       <span className="font-semibold text-emerald-800 bg-white/90 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
                                         {item.classItem?.currentStudents} HS
@@ -858,7 +854,7 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
                             <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0" />
                             <span>{s.schedule.startTime}</span>
                             <span className="opacity-75">•</span>
-                            <span className="font-mono">{s.classItem?.code}</span>
+                            <span className="truncate">{s.classItem?.name}</span>
                           </span>
                           {s.isSubstituted && (
                             <span className="text-[8px] bg-slate-950 text-amber-300 font-bold px-1 rounded shadow-xs shrink-0">
@@ -998,10 +994,7 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
               <>
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      {activeSession.classItem.code}
-                    </span>
-                    <h3 className="font-bold text-base text-slate-900 mt-1">{activeSession.classItem.name}</h3>
+                    <h3 className="font-bold text-base text-slate-900">{activeSession.classItem.name}</h3>
                     <p className="text-xs text-slate-500">{activeSession.classItem.courseName}</p>
                   </div>
                   <button
@@ -1047,7 +1040,7 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
                     <span className="text-slate-400 text-[11px] block">Phòng học:</span>
                     <div className="font-bold text-slate-900 flex items-center gap-1.5">
                       <DoorOpen className="w-3.5 h-3.5 text-amber-500" />
-                      {activeSession.classItem.classroom}
+                      {activeSession.schedule.classroom || activeSession.classItem.classroom}
                     </div>
                     <div className="text-emerald-700 font-semibold text-[11px]">
                       Sĩ số: {activeSession.classItem.currentStudents} học sinh

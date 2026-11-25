@@ -135,7 +135,9 @@ export default function ClassroomsManager() {
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredRooms.map((room) => {
-                const classesInRoom = classes.filter((c) => c.classroom === room.name);
+                const classesInRoom = classes.filter(
+                  (c) => c.classroom === room.name || c.schedules.some((s) => s.classroom === room.name)
+                );
                 return (
                   <tr key={room.id} className="hover:bg-slate-50/80 transition">
                     <td className="py-3.5 px-4 font-bold text-slate-900 flex items-center gap-2">
@@ -161,7 +163,7 @@ export default function ClassroomsManager() {
                               key={cls.id}
                               className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200"
                             >
-                              {cls.code}
+                              {cls.name}
                             </span>
                           ))}
                         </div>
