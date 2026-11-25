@@ -48,9 +48,10 @@ export default function ZaloTopBarBanner({
     [activeRole, staffId, staffPhone, currentUserAccount]
   );
 
-  // Trạng thái bot Zalo thực từ API server (độc lập tuyệt đối theo từng tài khoản)
+  // Trạng thái bot Zalo thực từ API server (độc lập tuyệt đối theo từng tài khoản, nhiều bot chạy song song)
   const [botConnected, setBotConnected] = useState(false);
   const [botUser, setBotUser] = useState<{ name: string; phone?: string } | null>(null);
+  const [activeBotsCount, setActiveBotsCount] = useState<number>(0);
 
   useEffect(() => {
     if (activeRole === "PARENT") return;
@@ -70,6 +71,7 @@ export default function ZaloTopBarBanner({
           const data = await res.json();
           setBotConnected(!!data.isConnected);
           setBotUser(data.user || null);
+          setActiveBotsCount(typeof data.activeBotsCount === "number" ? data.activeBotsCount : 0);
         }
       } catch (_e) {}
     };
@@ -105,8 +107,8 @@ export default function ZaloTopBarBanner({
     }
 
     return (
-      <div className="bg-slate-900 text-slate-200 border-b border-slate-800 px-3 sm:px-6 py-1.5 text-xs shadow-2xs">
-        <div className="max-w-7xl 2xl:max-w-[1500px] mx-auto flex items-center justify-between gap-2">
+      <div className="bg-slate-900 text-slate-200 border-b border-slate-800 px-3 sm:px-5 py-1.5 text-xs shadow-2xs">
+        <div className="w-full max-w-5xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="font-semibold text-amber-300 flex items-center gap-1">
               💬 Hotline Zalo Trung Tâm:
@@ -201,10 +203,10 @@ export default function ZaloTopBarBanner({
 
   return (
     <>
-      <div className="bg-slate-900 text-slate-200 border-b border-slate-800 px-3 sm:px-4 lg:px-6 py-1.5 text-xs shadow-2xs select-none">
-        <div className="max-w-7xl 2xl:max-w-[1500px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2">
+      <div className="bg-slate-900 text-slate-200 border-b border-slate-800 px-3 sm:px-4 lg:px-5 py-1.5 text-xs select-none">
+        <div className="w-full mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
           {/* CỘT TRÁI */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
             <div className="flex items-center gap-1.5 font-bold text-white shrink-0">
               <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10.5px]">
                 💬
@@ -236,13 +238,15 @@ export default function ZaloTopBarBanner({
                 title="Tài khoản này chưa đăng nhập Bot Zalo. Bấm để quét mã QR riêng."
               >
                 <AlertTriangle className="w-3 h-3 text-rose-400" />
-                <span>Zalo Riêng: Chưa Kết Nối (Bấm Quét QR)</span>
+                <span>Zalo Riêng: Chưa Kết Nối (Quét QR)</span>
               </button>
             )}
 
-            <span className="hidden lg:inline text-slate-400 text-[10.5px]">
-              • Phiên Zalo tách biệt hoàn toàn theo từng tài khoản
-            </span>
+            {activeBotsCount > 1 && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/25 text-[10px] font-semibold shrink-0">
+                ⚡ {activeBotsCount} Bot đang chạy song song
+              </span>
+            )}
           </div>
 
           {/* CỘT PHẢI */}

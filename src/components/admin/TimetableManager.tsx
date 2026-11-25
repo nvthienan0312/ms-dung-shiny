@@ -529,12 +529,12 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto scrollbar-thin">
-              <table className="w-full table-fixed text-left text-xs border-collapse min-w-[980px]">
+              <table className="w-full table-fixed text-left text-xs border-collapse min-w-[740px] lg:min-w-0">
               <thead>
                 <tr className="bg-slate-50/90 border-b border-slate-200">
                   {/* Cột 1: Tiêu đề Khung Giờ */}
-                  <th className="py-2.5 px-2 w-[110px] min-w-[100px] font-bold text-slate-700 border-r border-slate-200 uppercase tracking-tight text-[10px] bg-slate-100/70">
-                    Khung Giờ \ Thứ
+                  <th className="py-2 px-1.5 w-[90px] xl:w-[105px] font-bold text-slate-700 border-r border-slate-200 uppercase tracking-tight text-[10px] bg-slate-100/70">
+                    Khung Giờ
                   </th>
                   {/* 7 Cột: Các Ngày Trong Tuần (Thứ 2 -> Chủ Nhật) */}
                   {weekDays.map((day) => {

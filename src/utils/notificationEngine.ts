@@ -191,7 +191,7 @@ Trung tâm xin gửi thông báo chi tiết học phí của con trong tháng:
 
 THÔNG TIN CHUYỂN KHOẢN (VIETQR):
 • Ngân hàng: MB Bank (Quân Đội)
-• STK: 999988886666
+• STK: 0964645174
 • Chủ TK: NGUYEN THI DUNG
 • Nội dung CK: HP {studentNameUpper} {classNameUpper}
 
@@ -216,7 +216,7 @@ Trung tâm xin gửi lời nhắc nhẹ về khoản học phí {billingMonth} c
 📅 Hạn cuối: Ngày {dueDate} (Hôm nay / Ngày mai)
 
 Thông tin chuyển khoản:
-• MB Bank | STK: 999988886666 | NGUYEN THI DUNG
+• MB Bank | STK: 0964645174 | NGUYEN THI DUNG
 • Cú pháp: HP {studentNameUpper} {classNameUpper}
 
 Ba Mẹ kiểm tra và hoàn thành học phí đúng hạn để đảm bảo quyền lợi học tập của con nhé ạ.
@@ -239,7 +239,7 @@ Hệ thống tài chính của trung tâm ghi nhận bé hiện đang còn tồn
 👉 TỔNG NỢ LŨY KẾ CẦN THANH TOÁN: {totalDebt}
 
 Thông tin chuyển khoản:
-• MB Bank | STK: 999988886666 | NGUYEN THI DUNG
+• MB Bank | STK: 0964645174 | NGUYEN THI DUNG
 • Cú pháp: NOP NO HP {studentNameUpper} {classNameUpper}
 
 Kính đề nghị Ba Mẹ vui lòng sắp xếp thanh toán trước ngày 15 để tránh ảnh hưởng đến việc duy trì sĩ số của con tại lớp. Nếu cần hỗ trợ thêm, Ba Mẹ liên hệ Hotline 0964.645.174.

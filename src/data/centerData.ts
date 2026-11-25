@@ -847,7 +847,7 @@ export const INITIAL_ZALO_SESSIONS: Record<ZaloAccountRole, ZaloSessionState> = 
   ADMIN: {
     role: "ADMIN",
     phoneNumber: "0964645174",
-    accountName: "Ms. Dung Shiny (Hotline)",
+    accountName: "Chủ Trung Tâm",
     isValid: false,
     lastHandshakeAt: undefined,
     sessionExpiresAt: undefined,
@@ -855,8 +855,8 @@ export const INITIAL_ZALO_SESSIONS: Record<ZaloAccountRole, ZaloSessionState> = 
   },
   TEACHER: {
     role: "TEACHER",
-    phoneNumber: "0901234567",
-    accountName: "Giáo Viên Tiếng Anh",
+    phoneNumber: "",
+    accountName: "Giáo Viên",
     isValid: false,
     lastHandshakeAt: undefined,
     sessionExpiresAt: undefined,
@@ -864,8 +864,8 @@ export const INITIAL_ZALO_SESSIONS: Record<ZaloAccountRole, ZaloSessionState> = 
   },
   ASSISTANT: {
     role: "ASSISTANT",
-    phoneNumber: "0909999888",
-    accountName: "Trợ Giảng Shiny",
+    phoneNumber: "",
+    accountName: "Trợ Giảng",
     isValid: false,
     lastHandshakeAt: undefined,
     sessionExpiresAt: undefined,

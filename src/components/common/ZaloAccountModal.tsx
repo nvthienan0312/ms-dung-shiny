@@ -94,6 +94,7 @@ export default function ZaloAccountModal({
     qrCode?: string | null;
     qrRemainingSec?: number;
     isExpired?: boolean;
+    activeBotsCount?: number;
     user?: { id?: string; name: string; avatar?: string; phone?: string } | null;
   }>({
     isConnected: false,
@@ -400,11 +401,18 @@ export default function ZaloAccountModal({
           {activeTab === "ACCOUNT" && (
             <div className="space-y-4">
               {/* Isolation Notice */}
-              <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-start gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                <div>
-                  <strong>Phiên Zalo độc lập ({accountKey}):</strong> Chỉ tài khoản đang đăng nhập này sử dụng. Giáo viên, Trợ giảng hay Admin khác tuyệt đối không thể gửi hoặc xem phiên Zalo của bạn.
+              <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-start justify-between gap-2.5">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Phiên Zalo độc lập ({accountKey}):</strong> Nhiều tài khoản (Admin, Giáo viên, Trợ giảng) có thể chạy Bot Zalo song song cùng lúc mà không trùng lặp hay ghi đè lẫn nhau. Tự động đăng xuất Bot khi bạn đăng xuất tài khoản web.
+                  </div>
                 </div>
+                {typeof botStatus.activeBotsCount === "number" && botStatus.activeBotsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[10px] whitespace-nowrap shrink-0">
+                    🟢 {botStatus.activeBotsCount} bot đang chạy
+                  </span>
+                )}
               </div>
 
               {botStatus.isConnected ? (

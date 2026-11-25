@@ -11,9 +11,15 @@ export async function GET(req: NextRequest) {
     const phone = searchParams.get("phone");
 
     const bot = multiZaloBotManager.getBotInstance(account || undefined, role || undefined, phone || undefined);
-    const status = await bot.getStatus();
+    const [status, activeBots] = await Promise.all([
+      bot.getStatus(),
+      multiZaloBotManager.getActiveBotsSummary(),
+    ]);
 
-    return NextResponse.json(status);
+    return NextResponse.json({
+      ...status,
+      activeBotsCount: activeBots.length,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { isConnected: false, status: "error", error: error?.message },

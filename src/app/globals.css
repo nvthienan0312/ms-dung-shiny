@@ -84,6 +84,22 @@ input[type="submit"],
   }
 }
 
+/* Tiện ích scrollbar gọn nhẹ cho desktop & bảng cuộn ngang */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
 /* Hiệu ứng phản hồi chạm nhạy (Touch Feedback) */
 .active-press:active {
   transform: scale(0.97);

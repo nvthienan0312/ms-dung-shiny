@@ -64,91 +64,91 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex flex-col justify-center items-center p-3 sm:p-5">
       {/* Branding Header */}
-      <div className="text-center mb-6 max-w-lg">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-300 text-xs font-semibold mb-3">
-          <Sparkles className="w-3.5 h-3.5" />
+      <div className="text-center mb-4 max-w-md">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-300 text-[11px] font-semibold mb-2">
+          <Sparkles className="w-3 h-3" />
           Hệ Thống Đăng Nhập & Phân Quyền Bảo Mật
         </div>
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-white font-extrabold text-2xl shadow-lg shadow-amber-500/20">
+        <div className="flex items-center justify-center gap-2.5 mb-1">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-amber-500/20">
             ✨
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
             Ms. Dung Shiny
           </h1>
         </div>
-        <p className="text-slate-300 text-xs sm:text-sm">
+        <p className="text-slate-300 text-xs">
           Hệ thống Quản lý Trung tâm Tiếng Anh & Cổng Học Tập Điện Tử
         </p>
       </div>
 
       {/* Main Login Card */}
-      <div className="w-full max-w-lg bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-100/30 overflow-hidden">
+      <div className="w-full max-w-md bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100/30 overflow-hidden">
         
         {/* Role Selector Bar */}
-        <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200/80">
-          <div className="text-xs font-bold text-slate-600 mb-2.5 text-center">
+        <div className="p-3.5 sm:p-4 bg-slate-50/80 border-b border-slate-200/80">
+          <div className="text-[11px] font-bold text-slate-600 mb-2 text-center uppercase tracking-wider">
             Chọn vai trò đăng nhập
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button
               type="button"
               onClick={() => handleRoleChange("ADMIN")}
-              className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl border text-xs font-bold transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
                 selectedRole === "ADMIN"
-                  ? "bg-amber-500 text-slate-950 border-amber-600 shadow-md ring-2 ring-amber-400/50"
+                  ? "bg-amber-500 text-slate-950 border-amber-600 shadow-sm ring-2 ring-amber-400/50"
                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
               }`}
             >
-              <ShieldCheck className="w-5 h-5" />
+              <ShieldCheck className="w-4 h-4" />
               <span>Quản Trị Viên</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleRoleChange("TEACHER")}
-              className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl border text-xs font-bold transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
                 selectedRole === "TEACHER"
-                  ? "bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/50"
+                  ? "bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-400/50"
                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
               }`}
             >
-              <GraduationCap className="w-5 h-5" />
+              <GraduationCap className="w-4 h-4" />
               <span>Giáo Viên</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleRoleChange("ASSISTANT")}
-              className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl border text-xs font-bold transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
                 selectedRole === "ASSISTANT"
-                  ? "bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-400/50"
+                  ? "bg-blue-600 text-white border-blue-700 shadow-sm ring-2 ring-blue-400/50"
                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
               }`}
             >
-              <UserCheck className="w-5 h-5" />
+              <UserCheck className="w-4 h-4" />
               <span>Trợ Giảng (TA)</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleRoleChange("PARENT")}
-              className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl border text-xs font-bold transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
                 selectedRole === "PARENT"
-                  ? "bg-purple-600 text-white border-purple-700 shadow-md ring-2 ring-purple-400/50"
+                  ? "bg-purple-600 text-white border-purple-700 shadow-sm ring-2 ring-purple-400/50"
                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
               }`}
             >
-              <Users className="w-5 h-5" />
+              <Users className="w-4 h-4" />
               <span>Phụ Huynh</span>
             </button>
           </div>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-3.5">
           
           {/* Notification Messages */}
           {errorMessage && (

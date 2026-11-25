@@ -3681,6 +3681,60 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    const closingAccount = currentUserAccount;
+
+    // Tự động đăng xuất Bot Zalo của ĐÚNG tài khoản đang đăng xuất (không ảnh hưởng bot các tài khoản khác đang hoạt động)
+    if (closingAccount && closingAccount.role !== "PARENT") {
+      const accountKey = buildZaloAccountKey({
+        role: closingAccount.role,
+        staffId: closingAccount.staffId,
+        phone: closingAccount.phone,
+        userId: closingAccount.id,
+      });
+
+      if (typeof window !== "undefined") {
+        try {
+          void fetch("/api/zalo/disconnect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            keepalive: true,
+            body: JSON.stringify({
+              accountId: accountKey,
+              role: closingAccount.role,
+              phone: closingAccount.phone || "",
+            }),
+          });
+        } catch (_e) {}
+      }
+
+      const cleanClosingPhone = cleanPhoneNumber(closingAccount.phone || "");
+      setZaloAccounts((prev) =>
+        prev.map((acc) => {
+          const sameUser =
+            acc.role === closingAccount.role &&
+            (closingAccount.role === "ADMIN" ||
+              (cleanClosingPhone && cleanPhoneNumber(acc.phoneNumber) === cleanClosingPhone));
+          return sameUser ? { ...acc, isConnected: false } : acc;
+        })
+      );
+
+      if (
+        closingAccount.role === "ADMIN" ||
+        closingAccount.role === "TEACHER" ||
+        closingAccount.role === "ASSISTANT"
+      ) {
+        const zRole = closingAccount.role as ZaloAccountRole;
+        setZaloSessions((prev) => ({
+          ...prev,
+          [zRole]: {
+            ...prev[zRole],
+            isValid: false,
+            handshakeToken: undefined,
+          },
+        }));
+      }
+    }
+
     setCurrentUserAccount(null);
     if (typeof window !== "undefined") {
       try {

@@ -69,7 +69,7 @@ export class SingleZaloBotInstance {
   private readonly tmpSessionBakFile: string;
   private readonly dbSessionKey: string;
   private restorePromise: Promise<boolean> | null = null;
-  private hasAttemptedRestore: boolean = false;
+  private lastDbCheckAt: number = 0;
 
   constructor(accountKey: string, role: "ADMIN" | "TEACHER" | "ASSISTANT" = "ADMIN") {
     this.safeKey = (accountKey || "admin")
@@ -185,10 +185,13 @@ export class SingleZaloBotInstance {
     } catch (_e) {}
   }
 
-  public async ensureRestored(): Promise<boolean> {
+  public async ensureRestored(forceRecheck: boolean = false): Promise<boolean> {
     if (this.zaloApi) return true;
     if (this.isLoggingIn) return false;
-    if (this.hasAttemptedRestore && !this.restorePromise) return false;
+    const now = Date.now();
+    if (!forceRecheck && this.lastDbCheckAt > 0 && now - this.lastDbCheckAt < 4000 && !this.restorePromise) {
+      return false;
+    }
     if (!this.restorePromise) {
       this.restorePromise = this.tryRestoreSession().finally(() => {
         this.restorePromise = null;
@@ -199,7 +202,7 @@ export class SingleZaloBotInstance {
 
   // Khôi phục phiên từ file hoặc DB riêng của tài khoản này
   public async tryRestoreSession(): Promise<boolean> {
-    this.hasAttemptedRestore = true;
+    this.lastDbCheckAt = Date.now();
     let sessionData: any = null;
 
     const local = this.readLocalSessionContent();
@@ -219,7 +222,7 @@ export class SingleZaloBotInstance {
 
     try {
       const { Zalo } = await import("zca-js");
-      this.zaloInstance = new Zalo();
+      this.zaloInstance = new Zalo({ selfListen: false, checkUpdate: false, logging: false });
       const api = await this.zaloInstance.login(sessionData);
 
       this.zaloApi = api;
@@ -307,11 +310,11 @@ export class SingleZaloBotInstance {
     this.isLoggingIn = true;
     this.currentQrStatus = "generating";
     this.currentQrCode = null;
-    this.hasAttemptedRestore = true;
+    this.lastDbCheckAt = Date.now();
 
     try {
       const { Zalo, LoginQRCallbackEventType } = await import("zca-js");
-      this.zaloInstance = new Zalo();
+      this.zaloInstance = new Zalo({ selfListen: false, checkUpdate: false, logging: false });
 
       return new Promise((resolve) => {
         let settled = false;
@@ -464,7 +467,7 @@ export class SingleZaloBotInstance {
 
   // Lấy danh bạ bạn bè & nhóm thật (có tên đầy đủ) của tài khoản này
   public async getContacts() {
-    await this.ensureRestored();
+    await this.ensureRestored(true);
     if (!this.zaloApi) {
       return { friends: [], groups: [], self: this.connectedUserInfo };
     }
@@ -571,7 +574,7 @@ export class SingleZaloBotInstance {
       return { success: false, error: "Thiếu nội dung tin nhắn.", message: "Nội dung rỗng" };
     }
 
-    await this.ensureRestored();
+    await this.ensureRestored(true);
 
     if (!this.zaloApi) {
       return {
@@ -783,7 +786,7 @@ export class SingleZaloBotInstance {
     this.isLoggingIn = false;
     this.qrGeneratedAt = 0;
     this.restorePromise = null;
-    this.hasAttemptedRestore = true;
+    this.lastDbCheckAt = Date.now();
     await this.deleteSessionStorage();
     return { success: true };
   }
@@ -791,7 +794,7 @@ export class SingleZaloBotInstance {
 
 /**
  * Quản lý đa Bot Zalo ĐỘC LẬP TUYỆT ĐỐI theo từng tài khoản người dùng.
- * Không gộp chung các giáo viên/trợ giảng vào cùng 1 bot và không tự động gửi ké qua nick người khác.
+ * Cho phép nhiều Bot (Admin, nhiều Giáo viên, nhiều Trợ giảng) hoạt động đồng thời song song.
  */
 export class MultiZaloBotManager {
   private instances: Map<string, SingleZaloBotInstance> = new Map();
@@ -812,7 +815,6 @@ export class MultiZaloBotManager {
     const cleanAcc = (accountId || "").trim().toLowerCase();
     const cleanDigits = (phone || "").replace(/[^0-9]/g, "");
 
-    // Nếu client truyền accountId định danh cụ thể (VD: teacher_0912345678, assistant_staff-ta1, admin)
     if (cleanAcc && cleanAcc !== "teacher" && cleanAcc !== "assistant") {
       if (cleanAcc === "admin" || cleanAcc === "hotline") {
         return { key: "admin", normalizedRole: "ADMIN" };
@@ -857,6 +859,42 @@ export class MultiZaloBotManager {
     return this.instances.get(key)!;
   }
 
+  // Thống kê tất cả các Bot Zalo đang hoạt động song song (kể cả trên nhiều instance serverless qua DB)
+  public async getActiveBotsSummary(): Promise<Array<{ accountKey: string; role: string }>> {
+    const activeKeys = new Map<string, string>();
+
+    for (const [key, bot] of Array.from(this.instances.entries())) {
+      const st = await bot.getStatus();
+      if (st.isConnected) {
+        activeKeys.set(key, bot.role);
+      }
+    }
+
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      const dbRows = await prisma.centerDataStore.findMany({
+        where: { key: { startsWith: "zalo_bot_session_" } },
+        select: { key: true },
+      });
+      for (const row of dbRows) {
+        const k = row.key.replace(/^zalo_bot_session_/, "");
+        if (k && !activeKeys.has(k)) {
+          const inferredRole = k.startsWith("assistant")
+            ? "ASSISTANT"
+            : k.startsWith("teacher")
+            ? "TEACHER"
+            : "ADMIN";
+          activeKeys.set(k, inferredRole);
+        }
+      }
+    } catch (_e) {}
+
+    return Array.from(activeKeys.entries()).map(([accountKey, role]) => ({
+      accountKey,
+      role,
+    }));
+  }
+
   // Gửi trực tiếp bằng ĐÚNG bot của tài khoản đang đăng nhập — tuyệt đối KHÔNG fallback sang tài khoản khác
   public async sendMessageFromAccount(params: {
     phone?: string;
@@ -898,8 +936,7 @@ const globalForMultiZalo = globalThis as unknown as {
 export const multiZaloBotManager =
   globalForMultiZalo.multiZaloBotManagerInstance || new MultiZaloBotManager();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForMultiZalo.multiZaloBotManagerInstance = multiZaloBotManager;
-}
+// Giữ cache trên globalThis cho cả development & production để nhiều bot chạy song song ổn định
+globalForMultiZalo.multiZaloBotManagerInstance = multiZaloBotManager;
 
 export const zaloBotService = multiZaloBotManager.getBotInstance("admin", "ADMIN");
