@@ -308,9 +308,11 @@ export default function TuitionManager() {
     const { lessonCount } = calculateMonthLessons(selectedMonth, targetClass.schedules);
     const actualLessons = lessonCount > 0 ? lessonCount : 8;
     const fee =
-      (studentObj?.feePerLesson && studentObj.feePerLesson > 1
+      (targetClass.feePerLesson && targetClass.feePerLesson > 0
+        ? targetClass.feePerLesson
+        : studentObj?.feePerLesson && studentObj.feePerLesson > 0
         ? studentObj.feePerLesson
-        : targetClass.feePerLesson) ||
+        : 0) ||
       (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
     const breakdown = computeStudentTuitionBreakdown({
       lessonCount: actualLessons,
@@ -656,10 +658,10 @@ export default function TuitionManager() {
     setIsZaloQueueOpen(true);
   };
 
-  // Tự động tính học phí theo lịch
+  // Tự động tính học phí theo lịch (lấy chuẩn học phí và TKB của từng lớp)
   const handleTriggerAutoCalculate = () => {
     if (selectedClassId === "ALL") {
-      classes.forEach((c) => calculateClassTuitionBills(c.id, selectedMonth));
+      autoTriggerMonthlyTuition(selectedMonth);
       showToast(`⚡ Đã tự động tính học phí theo lịch tháng cho toàn bộ các lớp (${selectedMonth})!`);
     } else {
       const cls = classes.find((c) => c.id === selectedClassId);

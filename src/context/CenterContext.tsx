@@ -1254,8 +1254,10 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       updatedStu.classId !== undefined
     ) {
       const nextClass = classes.find((c) => c.id === (updatedStu.classId ?? currentStu?.classId));
-      const nextFeePerLesson =
-        updatedStu.feePerLesson ?? currentStu?.feePerLesson ?? nextClass?.feePerLesson;
+      const classChanged = updatedStu.classId !== undefined && updatedStu.classId !== oldStudent?.classId;
+      const nextFeePerLesson = classChanged && nextClass?.feePerLesson
+        ? nextClass.feePerLesson
+        : (updatedStu.feePerLesson ?? nextClass?.feePerLesson ?? currentStu?.feePerLesson);
       const nextDiscountPercent = Math.min(
         100,
         Math.max(0, updatedStu.discountPercent ?? currentStu?.discountPercent ?? 0)
@@ -2327,10 +2329,14 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     const linkedCourse = courses.find((c) => c.id === targetClass.courseId);
     const { lessonCount } = calculateMonthLessons(billingMonth, targetClass.schedules);
     const actualLessonCount = lessonCount > 0 ? lessonCount : 8;
+    const hasClassDefinedFee =
+      (targetClass.feePerLesson !== undefined && targetClass.feePerLesson > 0) ||
+      (linkedCourse?.standardFeePerLesson !== undefined && linkedCourse.standardFeePerLesson > 0) ||
+      (targetClass.monthlyFee !== undefined && targetClass.monthlyFee > 0);
     const baseClassFeePerLesson =
-      targetClass.feePerLesson ||
-      linkedCourse?.standardFeePerLesson ||
-      (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
+      (targetClass.feePerLesson && targetClass.feePerLesson > 0 ? targetClass.feePerLesson : 0) ||
+      (linkedCourse?.standardFeePerLesson && linkedCourse.standardFeePerLesson > 0 ? linkedCourse.standardFeePerLesson : 0) ||
+      (targetClass.monthlyFee && targetClass.monthlyFee > 0 ? Math.round(targetClass.monthlyFee / 8) : 200000);
 
     const match = billingMonth.match(/(\d{1,2})\/(\d{4})/);
     const monthStr = match ? match[1].padStart(2, "0") : "11";
@@ -2343,10 +2349,11 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
     const updated = [...prevBills];
     classStudents.forEach((stu) => {
-      const feePerLesson =
-        stu.feePerLesson !== undefined && stu.feePerLesson > 0
-          ? stu.feePerLesson
-          : baseClassFeePerLesson;
+      const feePerLesson = hasClassDefinedFee
+        ? baseClassFeePerLesson
+        : stu.feePerLesson !== undefined && stu.feePerLesson > 0
+        ? stu.feePerLesson
+        : baseClassFeePerLesson;
       const baseBreakdown = computeStudentTuitionBreakdown({
         lessonCount: actualLessonCount,
         feePerLesson,
@@ -2441,9 +2448,28 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     return updated;
   };
 
+  const resolveClassFeePerLesson = (targetClass: ClassItem) => {
+    const linkedCourse = courses.find((c) => c.id === targetClass.courseId);
+    return (
+      (targetClass.feePerLesson && targetClass.feePerLesson > 0 ? targetClass.feePerLesson : 0) ||
+      (linkedCourse?.standardFeePerLesson && linkedCourse.standardFeePerLesson > 0 ? linkedCourse.standardFeePerLesson : 0) ||
+      (targetClass.monthlyFee && targetClass.monthlyFee > 0 ? Math.round(targetClass.monthlyFee / 8) : 0)
+    );
+  };
+
   const calculateClassTuitionBills = (classId: string, billingMonth: string) => {
     const targetClass = classes.find((c) => c.id === classId);
     if (!targetClass) return;
+    const classFee = resolveClassFeePerLesson(targetClass);
+    if (classFee > 0) {
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.classId === classId && s.learningStatus !== "DROPPED"
+            ? { ...s, className: targetClass.name, feePerLesson: classFee, monthlyFee: classFee * 8 }
+            : s
+        )
+      );
+    }
     setStudentTuitionBills((prev) => applyClassTuitionCalculation(targetClass, billingMonth, prev));
   };
 
@@ -2877,6 +2903,18 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const autoTriggerMonthlyTuition = (billingMonth: string) => {
+    const classById = new Map(classes.map((cls) => [cls.id, cls]));
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (!s.classId || s.learningStatus === "DROPPED") return s;
+        const targetClass = classById.get(s.classId);
+        if (!targetClass) return s;
+        const classFee = resolveClassFeePerLesson(targetClass);
+        return classFee > 0
+          ? { ...s, className: targetClass.name, feePerLesson: classFee, monthlyFee: classFee * 8 }
+          : s;
+      })
+    );
     setStudentTuitionBills((prev) => {
       let nextBills = [...prev];
       classes.forEach((cls) => {

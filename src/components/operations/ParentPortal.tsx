@@ -1809,7 +1809,7 @@ export default function ParentPortal() {
                     Học Phí Định Kỳ Theo Tháng
                   </h4>
                   <span className="text-xs font-mono font-bold text-emerald-600">
-                    {(currentTuitionBill?.feePerLesson || activeStudent?.feePerLesson || activeClass?.feePerLesson || (activeStudent?.monthlyFee ? Math.round(activeStudent.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
+                    {(currentTuitionBill?.feePerLesson || activeClass?.feePerLesson || activeStudent?.feePerLesson || (activeStudent?.monthlyFee ? Math.round(activeStudent.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
                   </span>
                 </div>
 
@@ -1850,7 +1850,7 @@ export default function ParentPortal() {
                 {(() => {
                   const billingM = currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth();
                   const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
-                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const fallbackFee = activeClass?.feePerLesson || activeStudent?.feePerLesson || 200000;
                   const effLessons = currentTuitionBill?.lessonCount || fallbackLessons;
                   const effFee = currentTuitionBill?.feePerLesson || fallbackFee;
                   const effBreakdown = computeStudentTuitionBreakdown({
@@ -1925,7 +1925,7 @@ export default function ParentPortal() {
                 onClick={() => {
                   const billingM = currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth();
                   const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
-                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const fallbackFee = activeClass?.feePerLesson || activeStudent?.feePerLesson || 200000;
                   const amt = currentTuitionBill
                     ? currentTuitionBill.finalAmount
                     : computeStudentTuitionBreakdown({
@@ -2014,7 +2014,7 @@ export default function ParentPortal() {
                   const monthOpts = getBillingMonthOptions();
                   const nextM = monthOpts[1]?.value || billingM;
                   const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
-                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const fallbackFee = activeClass?.feePerLesson || activeStudent?.feePerLesson || 200000;
                   const baseAmt = currentTuitionBill
                     ? currentTuitionBill.finalAmount
                     : computeStudentTuitionBreakdown({
