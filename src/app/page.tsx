@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { UserRole } from "@/types/auth";
+import { normalizePhoneNumber } from "@/utils/authHelper";
 import { useCenter } from "@/context/CenterContext";
 import LoginView from "@/components/auth/LoginView";
 import AdminChangePasswordModal from "@/components/auth/AdminChangePasswordModal";
@@ -127,24 +128,26 @@ export default function HomePage() {
 
   const currentStaffId = useMemo(() => {
     if (!currentUserAccount) return "";
-    if (currentUserAccount.staffId) return currentUserAccount.staffId;
-    const matchByPhone = staff.find((s) => s.phone === currentUserAccount.phone);
+    if (currentUserAccount.staffId) {
+      const exists = staff.find((s) => s.id === currentUserAccount.staffId);
+      if (exists) return exists.id;
+    }
+    const cleanAccPhone = normalizePhoneNumber(currentUserAccount.phone);
+    const matchByPhoneAndRole = staff.find(
+      (s) => normalizePhoneNumber(s.phone) === cleanAccPhone && s.role === currentUserAccount.role
+    );
+    if (matchByPhoneAndRole) return matchByPhoneAndRole.id;
+    const matchByPhone = staff.find((s) => normalizePhoneNumber(s.phone) === cleanAccPhone);
     if (matchByPhone) return matchByPhone.id;
-    if (currentUserAccount.role === "TEACHER") {
-      return staff.find((s) => s.role === "TEACHER")?.id || "";
-    }
-    if (currentUserAccount.role === "ASSISTANT") {
-      return staff.find((s) => s.role === "ASSISTANT")?.id || "";
-    }
     return "";
   }, [currentUserAccount, staff]);
 
   const currentTeacherStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === "TEACHER");
+    return staff.find((s) => s.id === currentStaffId);
   }, [staff, currentStaffId]);
 
   const currentAssistantStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === "ASSISTANT");
+    return staff.find((s) => s.id === currentStaffId);
   }, [staff, currentStaffId]);
 
   const adminAccount = useMemo(() => {
@@ -319,7 +322,7 @@ export default function HomePage() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="font-bold text-sm sm:text-base text-slate-900 leading-tight truncate">
-                Ms. Dung Shiny
+                Shiny English
               </h1>
               <span className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${roleBadgeClass}`}>
                 {roleLabel}
@@ -509,7 +512,7 @@ export default function HomePage() {
                   ✨
                 </span>
                 <div>
-                  <div className="font-bold text-xs leading-tight">Ms. Dung Shiny</div>
+                  <div className="font-bold text-xs leading-tight">Shiny English</div>
                   <div className="text-[10px] text-slate-300">{roleLabel}</div>
                 </div>
               </div>

@@ -867,7 +867,7 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
                   </div>
 
                   <div className="text-[8px] text-slate-300 text-right">
-                    Ms. Dung Shiny
+                    Shiny English
                   </div>
                 </div>
               );

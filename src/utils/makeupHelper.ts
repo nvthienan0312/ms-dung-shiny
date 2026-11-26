@@ -236,9 +236,9 @@ export function generateMakeupNotificationMessage(
     absentInfo = `\n- Bù cho buổi con vắng ngày: ${aD}/${aM}/${year}`;
   }
 
-  return `[MS. DUNG SHINY CENTER - THÔNG BÁO LỊCH HỌC BÙ TRONG THÁNG]
+  return `[SHINY ENGLISH CENTER - THÔNG BÁO LỊCH HỌC BÙ TRONG THÁNG]
 Kính gửi Phụ huynh ${parentName || "Học sinh"},
-Trung tâm Ms. Dung Shiny xin thông báo lịch lớp học bù trong ${makeupClass.monthStr} dành cho bé ${studentName}:${absentInfo}
+Trung tâm Shiny English xin thông báo lịch lớp học bù trong ${makeupClass.monthStr} dành cho bé ${studentName}:${absentInfo}
 - Lớp học bù: ${makeupClass.title}
 - Thời gian: ${makeupClass.startTime} - ${makeupClass.endTime}, ngày ${formattedDate}
 - Phòng học: ${makeupClass.classroomName}
@@ -274,10 +274,10 @@ export function generateMakeupSurveyMessage(
       .replaceAll("{absentDates}", datesText);
   }
 
-  return `[MS. DUNG SHINY CENTER - KHẢO SÁT LỊCH RẢNH HỌC BÙ ${monthStr.toUpperCase()}]
+  return `[SHINY ENGLISH CENTER - KHẢO SÁT LỊCH RẢNH HỌC BÙ ${monthStr.toUpperCase()}]
 Kính gửi Quý Phụ huynh bé ${studentName},
 Trong ${monthStr}, bé ${studentName} (${className}) có ${absentCount} buổi nghỉ học (ngày: ${datesText}).
-Theo quy chuẩn của trung tâm Ms. Dung Shiny, học sinh nghỉ học có quyền lợi được học bù trong tháng để củng cố bài học trước khi sang tháng mới.
+Theo quy chuẩn của trung tâm Shiny English, học sinh nghỉ học có quyền lợi được học bù trong tháng để củng cố bài học trước khi sang tháng mới.
 Để trung tâm sắp xếp lịch học bù phù hợp nhất cho con, kính nhờ Quý Phụ huynh phản hồi lại các khung giờ con có thể tham gia:
 1. Các buổi tối trong tuần: Khung 17:30 - 19:00 hoặc 19:00 - 20:30
 2. Cuối tuần: Khung Sáng / Chiều Thứ Bảy hoặc Chủ Nhật
@@ -296,7 +296,7 @@ export function generateMakeupReportMessage(
   const [year, month, day] = makeupClass.dateStr.split("-");
   const formattedDate = `${day}/${month}/${year}`;
 
-  return `[MS. DUNG SHINY CENTER - BÁO CÁO KẾT QUẢ BUỔI HỌC BÙ]
+  return `[SHINY ENGLISH CENTER - BÁO CÁO KẾT QUẢ BUỔI HỌC BÙ]
 Kính gửi Phụ huynh bé ${studentName},
 Trợ giảng/Giáo viên phụ trách xin gửi tóm tắt nội dung buổi học bù ngày ${formattedDate} (${makeupClass.startTime} - ${makeupClass.endTime}):
 - Lớp học bù: ${makeupClass.title}

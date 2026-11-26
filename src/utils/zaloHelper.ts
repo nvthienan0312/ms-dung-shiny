@@ -326,7 +326,7 @@ export function generateTuitionZaloMessage(
   const surchargeText = bill.surcharge && bill.surcharge > 0 ? `\n• Phụ thu: +${formatVND(bill.surcharge)}${bill.surchargeNote ? ` (${bill.surchargeNote})` : ""}` : "";
   const discountText = bill.discount && bill.discount > 0 ? `\n• Giảm trừ: -${formatVND(bill.discount)}${bill.discountNote ? ` (${bill.discountNote})` : ""}` : "";
 
-  return `[MS. DUNG SHINY ENGLISH CENTER] 
+  return `[SHINY ENGLISH ENGLISH CENTER] 
 THÔNG BÁO HỌC PHÍ ${bill.billingMonth.toUpperCase()}
 
 ${salutation} (Lớp: ${className}),
@@ -365,7 +365,7 @@ export function generateTuitionReminderZaloMessage(
   const salutation = parentName ? `Kính gửi Quý phụ huynh (${parentName}) của bé ${studentName}` : `Kính gửi Phụ huynh bé ${studentName}`;
 
   if (templateType === "MULTI_MONTH" && totalDebt && debtMonths && debtMonths.length > 1) {
-    return `[MS. DUNG SHINY] THÔNG BÁO ĐÔN ĐỐC HỌC PHÍ TỒN ĐỌNG
+    return `[SHINY ENGLISH] THÔNG BÁO ĐÔN ĐỐC HỌC PHÍ TỒN ĐỌNG
 
 ${salutation} (Lớp: ${className}),
 Hệ thống tài chính của trung tâm ghi nhận bé ${studentName} hiện đang còn tồn đọng học phí của ${debtMonths.length} kỳ học (${debtMonths.join(", ")}):
@@ -380,7 +380,7 @@ Trân trọng cảm ơn Ba Mẹ!`;
   }
 
   if (templateType === "OVERDUE") {
-    return `[MS. DUNG SHINY] NHẮC ĐÓNG HỌC PHÍ QUÁ HẠN
+    return `[SHINY ENGLISH] NHẮC ĐÓNG HỌC PHÍ QUÁ HẠN
 
 ${salutation} (Lớp: ${className}),
 Khoản học phí ${bill.billingMonth} của con đã quá hạn nộp (${bill.dueDate}) nhưng trung tâm chưa ghi nhận thanh toán:
@@ -395,7 +395,7 @@ Hotline: 0964.645.174. Cảm ơn Ba Mẹ!`;
   }
 
   // DUE_DATE (Cận hạn ngày 10)
-  return `[MS. DUNG SHINY] NHẮC HẠN ĐÓNG HỌC PHÍ ${bill.billingMonth.toUpperCase()}
+  return `[SHINY ENGLISH] NHẮC HẠN ĐÓNG HỌC PHÍ ${bill.billingMonth.toUpperCase()}
 
 ${salutation} (Lớp: ${className}),
 Trung tâm xin gửi lời nhắc nhẹ về khoản học phí ${bill.billingMonth} của con:
@@ -430,7 +430,7 @@ export function generateMakeupSurveyZaloMessage(
   }
 
   const salutation = parentName ? `Kính gửi Ba Mẹ bé ${studentName} (${parentName})` : `Kính gửi Ba Mẹ bé ${studentName}`;
-  return `[MS. DUNG SHINY] KHẢO SÁT LỊCH RẢNH HỌC BÙ
+  return `[SHINY ENGLISH] KHẢO SÁT LỊCH RẢNH HỌC BÙ
 
 ${salutation} (Lớp: ${className}),
 Trong tháng vừa qua, bé ${studentName} đã vắng ${absentCount} buổi học (${datesStr}). 
@@ -457,7 +457,7 @@ export function generateMakeupNoticeZaloMessage(
   focusTopic?: string
 ): string {
   const salutation = parentName ? `Kính gửi Ba Mẹ bé ${studentName} (${parentName})` : `Kính gửi Ba Mẹ bé ${studentName}`;
-  return `[MS. DUNG SHINY] THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC
+  return `[SHINY ENGLISH] THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC
 
 ${salutation} (Lớp: ${className}),
 Trung tâm đã sắp xếp ca học bù cho bé ${studentName} với thông tin chi tiết như sau:
@@ -558,7 +558,7 @@ export function generateMonthlyExamReportZaloMessage(
   remarks: string,
   pdfUrl?: string
 ): string {
-  return `[MS. DUNG SHINY] BÁO CÁO KẾT QUẢ BÀI THI ${monthStr.toUpperCase()}
+  return `[SHINY ENGLISH] BÁO CÁO KẾT QUẢ BÀI THI ${monthStr.toUpperCase()}
 
 Kính gửi Ba Mẹ bé ${studentName} (Lớp: ${className}),
 Cô ${teacherName} xin gửi Ba Mẹ kết quả bài thi tháng của con:
@@ -582,7 +582,7 @@ export function generateIncidentNoteZaloMessage(
 ): string {
   const roleName = role === "TEACHER" ? "Giáo viên" : "Trợ giảng";
   return `Chào Ba Mẹ bé ${studentName}!
-Em là ${staffName} (${roleName} của con tại Ms. Dung Shiny).
+Em là ${staffName} (${roleName} của con tại Shiny English).
 Trong buổi học ngày ${noteDate}, em xin phép chia sẻ một lưu ý nhỏ về con:
 
 📌 Vấn đề: ${tagLabel}
@@ -600,7 +600,7 @@ export function generatePayrollZaloMessage(
   totalHours: number,
   netSalary: number
 ): string {
-  return `[MS. DUNG SHINY] THÔNG BÁO BẢNG LƯƠNG & BẢNG CÔNG ${monthStr.toUpperCase()}
+  return `[SHINY ENGLISH] THÔNG BÁO BẢNG LƯƠNG & BẢNG CÔNG ${monthStr.toUpperCase()}
 
 Chào ${staffName}!
 Trung tâm đã hoàn tất tính toán bảng công và lương ${monthStr} của bạn:
@@ -625,7 +625,7 @@ export function generateAttendanceAbsentZaloMessage(params: {
 }): string {
   const hotline = params.centerHotline || "0964.645.174";
   const reasonLine = params.reason ? `\n• Lý do / Tình trạng: ${params.reason}` : "";
-  return `📢 THÔNG BÁO TÌNH HÌNH ĐIỂM DANH - MS. DUNG SHINY
+  return `📢 THÔNG BÁO TÌNH HÌNH ĐIỂM DANH - SHINY ENGLISH
 
 Kính gửi Phụ huynh bé ${params.studentName},
 
@@ -641,7 +641,7 @@ Hôm nay (ngày ${params.dateStr}), lớp ${params.className} đã bắt đầu 
 Nếu con có việc bận đột xuất hoặc cần hỗ trợ, Phụ huynh vui lòng phản hồi tin nhắn này hoặc liên hệ hotline: ${hotline}.
 
 Trân trọng,
-Trung Tâm Anh Ngữ Ms. Dung Shiny`;
+Trung Tâm Anh Ngữ Shiny English`;
 }
 
 /**
@@ -707,8 +707,8 @@ export function generateAttendanceGroupReportZaloMessage(params: {
   }
 
   const headerTitle = isMakeupClass 
-    ? `📢 [MS. DUNG SHINY] - BÁO CÁO ĐIỂM DANH CA HỌC BÙ`
-    : `📢 [MS. DUNG SHINY] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP`;
+    ? `📢 [SHINY ENGLISH] - BÁO CÁO ĐIỂM DANH CA HỌC BÙ`
+    : `📢 [SHINY ENGLISH] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP`;
 
   return `${headerTitle}
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -809,7 +809,7 @@ export function generateClassLogZaloMessage(params: {
     ? `\n⭐ Nhận xét riêng buổi học của bé ${studentName}:\n"${studentRemark.trim()}"\n`
     : "";
 
-  return `[MS. DUNG SHINY ENGLISH CENTER]
+  return `[SHINY ENGLISH ENGLISH CENTER]
 THÔNG BÁO BUỔI HỌC & BTVN NGÀY ${dateStr}
 
 ${salutation},
@@ -885,7 +885,7 @@ export function generateClassGroupPostMessage(params: {
     homeworkSection += "\n";
   }
 
-  return `📢 [MS. DUNG SHINY ENGLISH CENTER] - THÔNG BÁO LỚP ${className.toUpperCase()}
+  return `📢 [SHINY ENGLISH ENGLISH CENTER] - THÔNG BÁO LỚP ${className.toUpperCase()}
 📅 BUỔI HỌC NGÀY: ${dateStr}
 
 Kính gửi Quý Phụ Huynh Lớp ${className},
@@ -936,7 +936,7 @@ export function generateStudentSessionRemarkZaloMessage(params: {
     ? `\n• Lời phê của cô: "${feedback.trim()}"`
     : "";
 
-  return `[MS. DUNG SHINY ENGLISH CENTER]
+  return `[SHINY ENGLISH ENGLISH CENTER]
 NHẬN XÉT BUỔI HỌC NGÀY ${dateStr}
 
 ${salutation} (Lớp: ${className}),

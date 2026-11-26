@@ -23,7 +23,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplateItem[] = [
     type: "HOMEWORK",
     title: "Giao Bài Tập Về Nhà Mới (MS Teams)",
     description: "Thông báo chi tiết bài tập về nhà sau buổi học, kèm hạn nộp và hướng dẫn.",
-    contentPattern: `[MS. DUNG SHINY] THÔNG BÁO BÀI TẬP VỀ NHÀ MỚI 📝
+    contentPattern: `[SHINY ENGLISH] THÔNG BÁO BÀI TẬP VỀ NHÀ MỚI 📝
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Sau buổi học hôm nay, trung tâm xin gửi nội dung bài tập về nhà của con:
@@ -46,7 +46,7 @@ Hotline hỗ trợ: 0964.645.174. Trân trọng cảm ơn Ba Mẹ!`,
     type: "HOMEWORK",
     title: "Nhắc Nhở Nộp BTVN Chưa Hoàn Thành",
     description: "Gửi nhắc nhở nhẹ nhàng khi học sinh sắp đến hạn hoặc quá hạn nộp BTVN.",
-    contentPattern: `[MS. DUNG SHINY] NHẮC NỘP BÀI TẬP VỀ NHÀ ⏰
+    contentPattern: `[SHINY ENGLISH] NHẮC NỘP BÀI TẬP VỀ NHÀ ⏰
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Thầy/cô xin gửi lời nhắc nhẹ: Hiện tại hệ thống chưa ghi nhận bài tập về nhà của con:
@@ -66,7 +66,7 @@ Thầy/cô cảm ơn Ba Mẹ rất nhiều!`,
     type: "HOMEWORK",
     title: "Thông Báo Kết Quả Kiểm Tra BTVN (Nhận Xét & Sửa Lỗi)",
     description: "Báo cáo nhận xét phát âm video và bài tập Workbook do Trợ giảng kiểm tra.",
-    contentPattern: `[MS. DUNG SHINY] KẾT QUẢ KIỂM TRA BTVN CỦA CON 🌟
+    contentPattern: `[SHINY ENGLISH] KẾT QUẢ KIỂM TRA BTVN CỦA CON 🌟
 
 Chào Ba Mẹ bé {studentName} (Lớp: {className}) ạ!
 Em là {assistantName} - Trợ giảng lớp của con.
@@ -90,7 +90,7 @@ Ba Mẹ mở ứng dụng Sổ liên lạc để xem chi tiết nhận xét củ
     type: "LESSON_SCHEDULE",
     title: "Thông Báo Lịch Học Tuần & Phòng Học",
     description: "Nhắc lịch học cố định trong tuần của lớp để phụ huynh đưa đón đúng giờ.",
-    contentPattern: `[MS. DUNG SHINY] THÔNG BÁO LỊCH HỌC TRONG TUẦN 📅
+    contentPattern: `[SHINY ENGLISH] THÔNG BÁO LỊCH HỌC TRONG TUẦN 📅
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Trung tâm xin gửi lịch học cố định của con trong tuần này:
@@ -111,10 +111,10 @@ Hotline trung tâm: 0964.645.174. Trân trọng!`,
     type: "LESSON_SCHEDULE",
     title: "Thông Báo Lịch Nghỉ Lễ / Tạm Nghỉ Học",
     description: "Thông báo lịch nghỉ lễ Tết hoặc bảo trì cơ sở.",
-    contentPattern: `[MS. DUNG SHINY] THÔNG BÁO NGHỈ LỄ {holidayName} 🏖️
+    contentPattern: `[SHINY ENGLISH] THÔNG BÁO NGHỈ LỄ {holidayName} 🏖️
 
 Kính gửi Quý phụ huynh học sinh (Lớp: {className}),
-Trung tâm Ms. Dung Shiny trân trọng thông báo lịch nghỉ {holidayName} như sau:
+Trung tâm Shiny English trân trọng thông báo lịch nghỉ {holidayName} như sau:
 • Thời gian nghỉ: Từ ngày {startDate} đến hết ngày {endDate}
 • Thời gian đi học lại: Ngày {resumeDate}
 
@@ -133,7 +133,7 @@ Hotline trung tâm: 0964.645.174. Trân trọng cảm ơn Quý phụ huynh!`,
     type: "STUDENT_FEEDBACK",
     title: "Lưu Ý Riêng Buổi Học (Incident Note)",
     description: "Gửi riêng cho phụ huynh khi con có phát sinh trong buổi học (nghịch, quên sách, buồn ngủ...).",
-    contentPattern: `[MS. DUNG SHINY] LƯU Ý RIÊNG BUỔI HỌC CỦA BÉ {studentName} 💬
+    contentPattern: `[SHINY ENGLISH] LƯU Ý RIÊNG BUỔI HỌC CỦA BÉ {studentName} 💬
 
 Chào Ba Mẹ bé {studentName}!
 Em là {staffName} ({staffRole} lớp của con).
@@ -154,7 +154,7 @@ Em nhắn để Ba Mẹ nắm được tình hình và cùng phối hợp nhắc
     type: "STUDENT_FEEDBACK",
     title: "Báo Cáo Kết Quả Bài Thi Tháng Kèm Link PDF",
     description: "Thông báo điểm thi, nhận xét toàn diện 4 kỹ năng và link tải phiếu kết quả.",
-    contentPattern: `[MS. DUNG SHINY] BÁO CÁO KẾT QUẢ BÀI THI THÁNG {monthStr} 🏆
+    contentPattern: `[SHINY ENGLISH] BÁO CÁO KẾT QUẢ BÀI THI THÁNG {monthStr} 🏆
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Cô {teacherName} xin gửi Ba Mẹ kết quả bài kiểm tra định kỳ của con:
@@ -177,7 +177,7 @@ Ba Mẹ xem qua và tiếp tục động viên, khen ngợi con ở nhà nhé �
     type: "TUITION",
     title: "Thông Báo Học Phí Tháng (Kèm VietQR)",
     description: "Thông báo học phí định kỳ ngày 01 đầu tháng, minh bạch số buổi và đơn giá.",
-    contentPattern: `[MS. DUNG SHINY ENGLISH CENTER] 
+    contentPattern: `[SHINY ENGLISH CENTER] 
 THÔNG BÁO HỌC PHÍ {billingMonth} 🧾
 
 Kính gửi Quý phụ huynh bé {studentName} (Lớp: {className}),
@@ -208,7 +208,7 @@ Hotline hỗ trợ: 0964.645.174. Trân trọng cảm ơn Ba Mẹ!`,
     type: "TUITION",
     title: "Nhắc Hạn Đóng Học Phí (Cận Hạn Ngày 10)",
     description: "Nhắc phụ huynh sắp đến hạn ngày 10 hàng tháng.",
-    contentPattern: `[MS. DUNG SHINY] NHẮC HẠN ĐÓNG HỌC PHÍ {billingMonth} 📅
+    contentPattern: `[SHINY ENGLISH] NHẮC HẠN ĐÓNG HỌC PHÍ {billingMonth} 📅
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Trung tâm xin gửi lời nhắc nhẹ về khoản học phí {billingMonth} của con:
@@ -232,7 +232,7 @@ Hotline: 0964.645.174. Trân trọng cảm ơn Ba Mẹ!`,
     type: "TUITION",
     title: "Đôn Đốc Nợ Học Phí Tồn Đọng Nhiều Tháng",
     description: "Đôn đốc các khoản nợ lũy kế từ 2 tháng trở lên.",
-    contentPattern: `[MS. DUNG SHINY] THÔNG BÁO ĐÔN ĐỐC HỌC PHÍ TỒN ĐỌNG ⚠️
+    contentPattern: `[SHINY ENGLISH] THÔNG BÁO ĐÔN ĐỐC HỌC PHÍ TỒN ĐỌNG ⚠️
 
 Kính gửi Quý phụ huynh bé {studentName} (Lớp: {className}),
 Hệ thống tài chính của trung tâm ghi nhận bé hiện đang còn tồn đọng học phí của {debtCount} kỳ học ({debtMonths}):
@@ -257,7 +257,7 @@ Trân trọng cảm ơn Ba Mẹ!`,
     type: "MAKEUP_CLASS",
     title: "Khảo Sát Lịch Rảnh Xếp Lớp Học Bù",
     description: "Gửi cho phụ huynh có con vắng buổi trong tháng để khảo sát thời gian bù.",
-    contentPattern: `[MS. DUNG SHINY] KHẢO SÁT LỊCH RẢNH HỌC BÙ ⚡
+    contentPattern: `[SHINY ENGLISH] KHẢO SÁT LỊCH RẢNH HỌC BÙ ⚡
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Trong tháng vừa qua, bé {studentName} đã vắng {absentCount} buổi học ({absentDates}). 
@@ -277,7 +277,7 @@ Hotline: 0964.645.174. Trân trọng cảm ơn Ba Mẹ!`,
     type: "MAKEUP_CLASS",
     title: "Thông Báo Lịch Học Bù Chính Thức",
     description: "Thông báo chi tiết ngày, giờ, phòng học và giáo viên phụ trách ca bù.",
-    contentPattern: `[MS. DUNG SHINY] THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC ⚡
+    contentPattern: `[SHINY ENGLISH] THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC ⚡
 
 Kính gửi Ba Mẹ bé {studentName} (Lớp: {className}),
 Trung tâm đã sắp xếp ca học bù cho bé {studentName} với thông tin chi tiết như sau:

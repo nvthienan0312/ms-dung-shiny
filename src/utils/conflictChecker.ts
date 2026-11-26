@@ -20,7 +20,11 @@ export function isTimeOverlapping(
 }
 
 export function getDayOfWeekFromDateStr(dateStr: string): number {
-  const d = new Date(dateStr);
+  if (!dateStr) return 2;
+  const match = dateStr.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const d = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(dateStr);
   const jsDay = d.getDay();
   return jsDay === 0 ? 8 : jsDay + 1; // 2: Thứ 2, ..., 8: Chủ Nhật
 }

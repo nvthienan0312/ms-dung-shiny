@@ -1,7 +1,7 @@
 {
-  "name": "Ms. Dung Shiny - Quản Lý Trung Tâm Tiếng Anh",
-  "short_name": "Ms. Dung Shiny",
-  "description": "Hệ thống quản lý đào tạo, thời khóa biểu và sổ liên lạc điện tử Ms. Dung Shiny",
+  "name": "Shiny English - Quản Lý Trung Tâm Tiếng Anh",
+  "short_name": "Shiny English",
+  "description": "Hệ thống quản lý đào tạo, thời khóa biểu và sổ liên lạc điện tử Shiny English",
   "start_url": "/",
   "id": "/",
   "display": "standalone",

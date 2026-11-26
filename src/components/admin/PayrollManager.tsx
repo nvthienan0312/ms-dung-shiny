@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useCenter } from "@/context/CenterContext";
 import { StaffSalaryTimesheet, StaffSalarySessionLog } from "@/data/centerData";
 import { 
@@ -30,6 +30,8 @@ import {
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 import ZaloBatchQueueModal, { ZaloQueueItem } from "@/components/common/ZaloBatchQueueModal";
 import { generatePayrollZaloMessage } from "@/utils/zaloHelper";
+import { getRollingTwoSalaryMonths, getCurrentBillingMonth } from "@/utils/dateHelper";
+import { MAKEUP_SESSION_FIXED_PAY } from "@/data/centerData";
 
 export default function PayrollManager() {
   const { 
@@ -39,6 +41,7 @@ export default function PayrollManager() {
     markTimesheetUnpaid,
     updateStaffTimesheet, 
     recalculateStaffTimesheetHours, 
+    syncMonthlyTimesheets,
     sendTimesheetToStaff,
     sendZaloMessageToParent,
     userAccounts,
@@ -48,8 +51,9 @@ export default function PayrollManager() {
   const adminSenderName = adminAccount?.name || "Chủ Trung Tâm";
   const adminSenderPhone = adminAccount?.phone || "";
 
-  // Filters
-  const [selectedMonth, setSelectedMonth] = useState<string>("Tháng 10/2026");
+  // Rolling 2-month window (e.g. Tháng 10 - 11 -> Tháng 11 - 12 -> Tháng 12 - 01)
+  const rollingMonths = useMemo(() => getRollingTwoSalaryMonths(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentBillingMonth());
   const [roleFilter, setRoleFilter] = useState<"ALL" | "TEACHER" | "ASSISTANT">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "CONFIRMED" | "PENDING_CONFIRMATION" | "SENT_TO_STAFF" | "DRAFT">("ALL");
   const [paymentFilter, setPaymentFilter] = useState<"ALL" | "PAID" | "UNPAID">("ALL");
@@ -213,7 +217,7 @@ export default function PayrollManager() {
   // Bật hàng đợi gửi Zalo bảng lương cho toàn bộ nhân sự (giãn cách 2-3 phút chống spam)
   const handleSendZaloAllStaffPayroll = () => {
     const listForMonth = staffTimesheets.filter(
-      (ts) => selectedMonth === "ALL" || ts.monthStr === selectedMonth
+      (ts) => availableMonths.includes(ts.monthStr) && (selectedMonth === "ALL" || ts.monthStr === selectedMonth)
     );
 
     const queue: ZaloQueueItem[] = [];
@@ -252,15 +256,25 @@ export default function PayrollManager() {
     setIsZaloQueueOpen(true);
   };
 
-  // Unique months available
+  // Unique rolling 2 months available
   const availableMonths = useMemo(() => {
-    const months = Array.from(new Set(staffTimesheets.map((ts) => ts.monthStr)));
-    return months.length > 0 ? months : ["Tháng 10/2026", "Tháng 11/2026"];
-  }, [staffTimesheets]);
+    const allowedSet = new Set(rollingMonths);
+    const fromData = staffTimesheets
+      .map((ts) => ts.monthStr)
+      .filter((m) => allowedSet.has(m));
+    return Array.from(new Set([...rollingMonths, ...fromData]));
+  }, [staffTimesheets, rollingMonths]);
 
-  // Filtered timesheets
+  useEffect(() => {
+    if (selectedMonth !== "ALL" && !availableMonths.includes(selectedMonth)) {
+      setSelectedMonth(availableMonths[availableMonths.length - 1] || rollingMonths[1]);
+    }
+  }, [availableMonths, selectedMonth, rollingMonths]);
+
+  // Filtered timesheets (lưu cuốn chiếu 2 tháng gần nhất)
   const filteredTimesheets = useMemo(() => {
     return staffTimesheets.filter((ts) => {
+      if (!availableMonths.includes(ts.monthStr)) return false;
       if (selectedMonth !== "ALL" && ts.monthStr !== selectedMonth) return false;
       if (roleFilter !== "ALL" && ts.role !== roleFilter) return false;
       if (statusFilter !== "ALL" && ts.status !== statusFilter) return false;
@@ -278,12 +292,12 @@ export default function PayrollManager() {
       }
       return true;
     });
-  }, [staffTimesheets, selectedMonth, roleFilter, statusFilter, paymentFilter, searchQuery]);
+  }, [staffTimesheets, availableMonths, selectedMonth, roleFilter, statusFilter, paymentFilter, searchQuery]);
 
-  // Summary Metrics
+  // Summary Metrics (chỉ tính trong cửa sổ 2 tháng gần nhất)
   const metrics = useMemo(() => {
     const listForMonth = staffTimesheets.filter(
-      (ts) => selectedMonth === "ALL" || ts.monthStr === selectedMonth
+      (ts) => availableMonths.includes(ts.monthStr) && (selectedMonth === "ALL" || ts.monthStr === selectedMonth)
     );
     const totalPayroll = listForMonth.reduce((acc, cur) => acc + cur.totalNetSalary, 0);
     const totalConfirmed = listForMonth.filter((ts) => ts.status === "CONFIRMED").length;
@@ -300,7 +314,15 @@ export default function PayrollManager() {
       totalStaffCount,
       percentConfirmed,
     };
-  }, [staffTimesheets, selectedMonth]);
+  }, [staffTimesheets, selectedMonth, availableMonths]);
+
+  const handleSyncRollingTwoMonths = () => {
+    let total = 0;
+    rollingMonths.forEach((m) => {
+      total += syncMonthlyTimesheets(m).count;
+    });
+    showToast(`✓ Đã đồng bộ bảng công 2 tháng gần nhất (${rollingMonths[0]} & ${rollingMonths[1]}) cho ${total} lượt nhân sự!`);
+  };
 
   const handleMarkPaid = (tsId: string, staffName: string) => {
     markTimesheetPaid(tsId);
@@ -337,6 +359,15 @@ export default function PayrollManager() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          <button
+            onClick={handleSyncRollingTwoMonths}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+            title={`Tổng hợp lịch dạy & lớp học bù cho ${rollingMonths.join(" & ")}`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Đồng Bộ 2 Tháng ({rollingMonths[0].replace("Tháng ", "T")} - {rollingMonths[1].replace("Tháng ", "T")})</span>
+          </button>
+
           <button
             onClick={() => showToast("Đã xuất file bảng chấm công chi tiết Excel (.xlsx) cho kế toán!")}
             className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition border border-slate-300"
@@ -872,13 +903,19 @@ export default function PayrollManager() {
                           {log.durationHours}h
                         </td>
                         <td className="py-2.5 px-3 text-right text-slate-600">
-                          {log.ratePerHour.toLocaleString("vi-VN")} đ
+                          {log.type === "MAKEUP"
+                            ? `${MAKEUP_SESSION_FIXED_PAY.toLocaleString("vi-VN")} đ/ca`
+                            : `${log.ratePerHour.toLocaleString("vi-VN")} đ`}
                         </td>
                         <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                          {log.amount.toLocaleString("vi-VN")} đ
+                          {(log.type === "MAKEUP" ? MAKEUP_SESSION_FIXED_PAY : log.amount).toLocaleString("vi-VN")} đ
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          {log.type === "SUBSTITUTION" ? (
+                          {log.type === "MAKEUP" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
+                              Lớp học bù ({MAKEUP_SESSION_FIXED_PAY.toLocaleString("vi-VN")}đ/buổi)
+                            </span>
+                          ) : log.type === "SUBSTITUTION" ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
                               Dạy thay
                             </span>
@@ -1131,7 +1168,16 @@ export default function PayrollManager() {
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Lương thực lĩnh tự tính:</label>
                 <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 font-mono font-extrabold text-amber-900 text-sm flex items-center justify-between">
-                  <span>{((editHours * editRate) + editAllowance + editBonus + parsedEditDeduction).toLocaleString("vi-VN")} đ</span>
+                  <span>
+                    {(() => {
+                      const makeupLogs = (editingTimesheet.sessionLogs || []).filter((l) => l.type === "MAKEUP");
+                      const makeupHours = makeupLogs.reduce((s, l) => s + (l.durationHours || 0), 0);
+                      const makeupPay = makeupLogs.length * MAKEUP_SESSION_FIXED_PAY;
+                      const regularHours = Math.max(0, editHours - makeupHours);
+                      const previewNet = Math.round(regularHours * editRate) + makeupPay + editAllowance + editBonus + parsedEditDeduction;
+                      return `${previewNet.toLocaleString("vi-VN")} đ`;
+                    })()}
+                  </span>
                   {parsedEditDeduction !== 0 && (
                     <span className={`text-[10.5px] font-normal ${parsedEditDeduction > 0 ? "text-emerald-700 font-semibold" : "text-rose-700 font-semibold"}`}>
                       ({parsedEditDeduction > 0 ? `+${parsedEditDeduction.toLocaleString("vi-VN")}` : `${parsedEditDeduction.toLocaleString("vi-VN")}`} đ)

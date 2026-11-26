@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useCenter } from "@/context/CenterContext";
 import { 
   WorkbookCheckRecord, 
@@ -25,20 +25,18 @@ import {
   BookOpen,
   MessageSquare
 } from "lucide-react";
-import { getTodayDateString } from "@/utils/dateHelper";
+import { getTodayDateString, getDayOfWeekNumber } from "@/utils/dateHelper";
 
 export interface WorkbookCheckManagerProps {
   currentStaffId?: string; // id của TA (mặc định "staff-ta1" - Thầy Minh Đức)
 }
 
 function getDayOfWeekFromDate(dateStr: string): number {
-  const d = new Date(dateStr);
-  const jsDay = d.getDay();
-  return jsDay === 0 ? 8 : jsDay + 1;
+  return getDayOfWeekNumber(dateStr);
 }
 
 export default function WorkbookCheckManager({
-  currentStaffId = "staff-ta1",
+  currentStaffId = "",
 }: WorkbookCheckManagerProps) {
   const { 
     classes, 
@@ -58,22 +56,21 @@ export default function WorkbookCheckManager({
   const dayOfWeek = getDayOfWeekFromDate(selectedDateStr);
 
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === "ASSISTANT") || staff[0] || { id: "", fullName: "Trợ giảng", role: "ASSISTANT" };
+    return staff.find((s) => s.id === currentStaffId) || { id: "", fullName: "Trợ giảng", role: "ASSISTANT" as const };
   }, [staff, currentStaffId]);
 
-  // Lọc các lớp do TA phụ trách
+  // Lọc các lớp do TA phụ trách trong ngày đang chọn
   const relevantClasses = useMemo(() => {
-    if (!activeStaff.id) return classes;
-    const d = new Date(selectedDateStr).getDay();
-    const dayOfWeek = d === 0 ? 8 : d + 1;
+    if (!activeStaff.id) return [];
     return classes.filter((cls) => {
       const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
       if (sub?.subAssistantId) return sub.subAssistantId === activeStaff.id;
       const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-      const slotAssistantId = todaySlot?.assistantId || cls.assistantId;
+      if (!todaySlot) return false;
+      const slotAssistantId = todaySlot.assistantId || cls.assistantId;
       return slotAssistantId === activeStaff.id;
     });
-  }, [classes, activeStaff, substitutions, selectedDateStr]);
+  }, [classes, activeStaff, substitutions, selectedDateStr, dayOfWeek]);
 
   // Queue ca học hôm nay
   const todaySessions = useMemo(() => {
@@ -87,14 +84,25 @@ export default function WorkbookCheckManager({
       .sort((a, b) => a.schedule.startTime.localeCompare(b.schedule.startTime));
   }, [relevantClasses, dayOfWeek]);
 
-  // Chọn lớp mặc định
-  const currentClass = useMemo(() => {
-    if (selectedClassId) {
-      return classes.find((c) => c.id === selectedClassId) || relevantClasses[0] || classes[0];
+  useEffect(() => {
+    if (todaySessions.length > 0) {
+      const stillValid = todaySessions.some((s) => s.classItem.id === selectedClassId);
+      if (!stillValid || !selectedClassId) {
+        setSelectedClassId(todaySessions[0].classItem.id);
+      }
+    } else if (selectedClassId) {
+      setSelectedClassId("");
     }
-    if (todaySessions.length > 0) return todaySessions[0].classItem;
-    return relevantClasses[0] || classes[0];
-  }, [classes, selectedClassId, todaySessions, relevantClasses]);
+  }, [todaySessions, selectedClassId]);
+
+  // Chỉ chọn lớp có lịch trực trong ngày (không fallback sang lớp ngày khác)
+  const currentClass = useMemo(() => {
+    if (todaySessions.length === 0) return undefined;
+    return (
+      todaySessions.find((s) => s.classItem.id === selectedClassId)?.classItem ||
+      todaySessions[0].classItem
+    );
+  }, [selectedClassId, todaySessions]);
 
   const classStudents = useMemo(() => {
     if (!currentClass) return [];
@@ -105,8 +113,11 @@ export default function WorkbookCheckManager({
   const [checkEntries, setCheckEntries] = useState<Map<string, { status: WorkbookCheckStatus; note?: string }>>(new Map());
 
   // Đồng bộ với dữ liệu đã lưu
-  useMemo(() => {
-    if (!currentClass) return;
+  useEffect(() => {
+    if (!currentClass) {
+      setCheckEntries(new Map());
+      return;
+    }
     const existingMap = new Map<string, { status: WorkbookCheckStatus; note?: string }>();
     const savedForSession = workbookChecks.filter(
       (w) => w.classId === currentClass.id && w.dateStr === selectedDateStr
@@ -219,7 +230,7 @@ export default function WorkbookCheckManager({
     );
   }, [classStudents, searchQuery]);
 
-  if (classes.length === 0 || !currentClass) {
+  if (classes.length === 0) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
         <BookCheck className="w-10 h-10 text-slate-300 mx-auto" />
@@ -268,34 +279,51 @@ export default function WorkbookCheckManager({
         {/* Hàng ca học của TA hôm nay */}
         <div className="pt-2 border-t border-slate-100 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
-            Ca trực:
+            Ca trực ({todaySessions.length}):
           </span>
-          {todaySessions.map((item) => {
-            const isSelected = item.classItem.id === currentClass?.id;
-            const theme = themeMap.get(item.classItem.id) || CLASS_THEMES[0];
-            return (
-              <button
-                key={item.classItem.id}
-                type="button"
-                onClick={() => setSelectedClassId(item.classItem.id)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-left transition shrink-0 ${
-                  isSelected
-                    ? "bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-amber-400"
-                    : "bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${theme.dot}`} />
-                <span className="text-xs font-bold">{item.classItem.name}</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/50 text-slate-700">
-                  {item.schedule.startTime} - {item.schedule.endTime}
-                </span>
-              </button>
-            );
-          })}
+          {todaySessions.length === 0 ? (
+            <span className="text-xs text-slate-500">
+              Hôm nay (Thứ {dayOfWeek === 8 ? "Chủ Nhật" : dayOfWeek}, {selectedDateStr}) bạn không có ca trực nào.
+            </span>
+          ) : (
+            todaySessions.map((item) => {
+              const isSelected = item.classItem.id === currentClass?.id;
+              const theme = themeMap.get(item.classItem.id) || CLASS_THEMES[0];
+              return (
+                <button
+                  key={item.classItem.id}
+                  type="button"
+                  onClick={() => setSelectedClassId(item.classItem.id)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-left transition shrink-0 ${
+                    isSelected
+                      ? "bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-amber-400"
+                      : "bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${theme.dot}`} />
+                  <span className="text-xs font-bold">{item.classItem.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/50 text-slate-700">
+                    {item.schedule.startTime} - {item.schedule.endTime}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
       {/* Main card */}
+      {!currentClass ? (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-2.5 shadow-xs">
+          <BookCheck className="w-10 h-10 text-slate-300 mx-auto" />
+          <h4 className="font-bold text-base text-slate-800">
+            Không Có Ca Kiểm Tra BTVN Trong Ngày {selectedDateStr}
+          </h4>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Ngày đang chọn (Thứ {dayOfWeek === 8 ? "Chủ Nhật" : dayOfWeek}) không có lớp học nào thuộc lịch trực của bạn. Chọn ngày khác hoặc bấm 📅 Hôm Nay để kiểm tra.
+          </p>
+        </div>
+      ) : (
       <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm space-y-3">
         {/* Class overview & action bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -307,7 +335,7 @@ export default function WorkbookCheckManager({
               </div>
               <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                 <span className="flex items-center gap-0.5">
-                  <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.schedules.find((s) => s.dayOfWeek === (new Date(selectedDateStr + "T00:00:00").getDay() === 0 ? 8 : new Date(selectedDateStr + "T00:00:00").getDay() + 1))?.classroom || currentClass?.classroom}
+                  <DoorOpen className="w-3 h-3 text-slate-400" /> {currentClass?.schedules.find((s) => s.dayOfWeek === dayOfWeek)?.classroom || currentClass?.classroom}
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-0.5">
@@ -501,6 +529,7 @@ export default function WorkbookCheckManager({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

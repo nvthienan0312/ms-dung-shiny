@@ -71,7 +71,7 @@ export default function CoursesManager() {
         level: formData.level,
         standardFeePerLesson: feePerLesson,
         monthlyFee: feePerLesson * 8,
-        description: formData.description || "Khóa học chất lượng cao tại Ms. Dung Shiny",
+        description: formData.description || "Khóa học chất lượng cao tại Shiny English",
       });
     }
 

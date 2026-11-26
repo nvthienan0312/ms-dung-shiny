@@ -68,7 +68,7 @@ const INCIDENT_TAG_OPTIONS: { tag: IncidentTag; label: string; defaultTemplate: 
 
 export default function StudentIncidentNotesManager({
   userRole = "ASSISTANT",
-  currentStaffId = "staff-ta1",
+  currentStaffId = "",
 }: StudentIncidentNotesManagerProps) {
   const { 
     classes, 
@@ -105,40 +105,53 @@ export default function StudentIncidentNotesManager({
   } | null>(null);
 
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === userRole) || staff[0] || { id: "", fullName: userRole === "TEACHER" ? "Giáo viên" : "Trợ giảng", phone: "", role: userRole };
+    return (
+      staff.find((s) => s.id === currentStaffId) || {
+        id: "",
+        fullName: userRole === "TEACHER" ? "Giáo viên" : userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên",
+        phone: "",
+        role: userRole,
+      }
+    );
   }, [staff, currentStaffId, userRole]);
 
   const relevantClasses = useMemo(() => {
     if (userRole === "ADMIN") return classes;
-    if (!activeStaff.id) return classes;
-    const d = new Date(selectedDateStr).getDay();
+    if (!activeStaff.id) return [];
+    const match = selectedDateStr.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const d = match
+      ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getDay()
+      : new Date(selectedDateStr).getDay();
     const dayOfWeek = d === 0 ? 8 : d + 1;
 
     if (userRole === "TEACHER") {
       return classes.filter((cls) => {
+        const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
+        if (!todaySlot) return false;
         const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
         if (sub?.subTeacherId) return sub.subTeacherId === activeStaff.id;
-        const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-        const slotTeacherId = todaySlot?.teacherId || cls.teacherId;
+        const slotTeacherId = todaySlot.teacherId || cls.teacherId;
         return slotTeacherId === activeStaff.id;
       });
     }
     // userRole === "ASSISTANT"
     return classes.filter((cls) => {
+      const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
+      if (!todaySlot) return false;
       const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
       if (sub?.subAssistantId) return sub.subAssistantId === activeStaff.id;
-      const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-      const slotAssistantId = todaySlot?.assistantId || cls.assistantId;
+      const slotAssistantId = todaySlot.assistantId || cls.assistantId;
       return slotAssistantId === activeStaff.id;
     });
   }, [classes, userRole, activeStaff, substitutions, selectedDateStr]);
 
   const currentClass = useMemo(() => {
+    if (relevantClasses.length === 0) return undefined;
     if (selectedClassId) {
-      return classes.find((c) => c.id === selectedClassId) || relevantClasses[0] || classes[0];
+      return relevantClasses.find((c) => c.id === selectedClassId) || relevantClasses[0];
     }
-    return relevantClasses[0] || classes[0];
-  }, [classes, selectedClassId, relevantClasses]);
+    return relevantClasses[0];
+  }, [selectedClassId, relevantClasses]);
 
   const classStudents = useMemo(() => {
     if (!currentClass) return [];

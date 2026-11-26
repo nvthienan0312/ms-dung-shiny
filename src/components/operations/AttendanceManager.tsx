@@ -39,7 +39,7 @@ import {
   X,
   AlertCircle
 } from "lucide-react";
-import { getTodayDateString } from "@/utils/dateHelper";
+import { getTodayDateString, getDayOfWeekNumber } from "@/utils/dateHelper";
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 import { 
   generateAttendanceAbsentZaloMessage, 
@@ -98,14 +98,12 @@ export interface UnifiedSessionQueueItem {
 }
 
 function getDayOfWeekFromDate(dateStr: string): number {
-  const d = new Date(dateStr);
-  const jsDay = d.getDay();
-  return jsDay === 0 ? 8 : jsDay + 1; // 2: Thứ 2, 3: Thứ 3, ..., 8: Chủ Nhật
+  return getDayOfWeekNumber(dateStr);
 }
 
 export default function AttendanceManager({
   userRole = "ASSISTANT",
-  currentStaffId = "staff-ta1",
+  currentStaffId = "",
 }: AttendanceManagerProps) {
   const { 
     classes, 
@@ -190,9 +188,16 @@ export default function AttendanceManager({
   // Day of week based on selected date
   const dayOfWeek = useMemo(() => getDayOfWeekFromDate(selectedDateStr), [selectedDateStr]);
 
-  // Current logged in staff details
+  // Current logged in staff details (không fallback sang nhân sự khác)
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === userRole) || staff[0] || { id: "", fullName: userRole === "TEACHER" ? "Giáo viên" : (userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên"), role: userRole };
+    const matched = staff.find((s) => s.id === currentStaffId);
+    if (matched) return matched;
+    return {
+      id: "",
+      fullName: userRole === "TEACHER" ? "Giáo viên" : userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên",
+      phone: "",
+      role: userRole,
+    };
   }, [staff, currentStaffId, userRole]);
 
   // 1. FILTER REGULAR CLASSES BY USER ROLE & TODAY'S SCHEDULE
@@ -200,43 +205,41 @@ export default function AttendanceManager({
     if (userRole === "ADMIN") {
       return classes;
     }
+    if (!activeStaff.id) return [];
     if (userRole === "TEACHER") {
-      if (!activeStaff.id) return classes;
       return classes.filter((cls) => {
+        const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
+        if (!todaySlot) return false;
         const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
         if (sub?.subTeacherId) {
           return sub.subTeacherId === activeStaff.id;
         }
-        const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-        const slotTeacherId = todaySlot?.teacherId || cls.teacherId;
+        const slotTeacherId = todaySlot.teacherId || cls.teacherId;
         return slotTeacherId === activeStaff.id;
       });
     }
     // userRole === "ASSISTANT"
-    if (!activeStaff.id) return classes;
     return classes.filter((cls) => {
+      const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
+      if (!todaySlot) return false;
       const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
       if (sub?.subAssistantId) {
         return sub.subAssistantId === activeStaff.id;
       }
-      const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-      const slotAssistantId = todaySlot?.assistantId || cls.assistantId;
+      const slotAssistantId = todaySlot.assistantId || cls.assistantId;
       return slotAssistantId === activeStaff.id;
     });
   }, [classes, userRole, activeStaff, substitutions, selectedDateStr, dayOfWeek]);
 
-  // 2. FILTER MAKEUP CLASSES (LỚP HỌC BÙ) TRONG NGÀY HOẶC THEO PHÂN CÔNG
+  // 2. FILTER MAKEUP CLASSES (LỚP HỌC BÙ) TRONG NGÀY ĐƯỢC PHÂN CÔNG
   const relevantMakeupClasses = useMemo(() => {
     return makeupClasses.filter((mc) => {
       const isDateMatch = mc.dateStr === selectedDateStr;
       if (!isDateMatch) return false;
 
       if (userRole === "ADMIN") return true;
-      if (userRole === "TEACHER") {
-        return mc.teacherOrAssistantId === activeStaff.id;
-      }
-      // userRole === "ASSISTANT"
-      return mc.teacherOrAssistantId === activeStaff.id || mc.roleInCharge === "ASSISTANT";
+      if (!activeStaff.id) return false;
+      return mc.teacherOrAssistantId === activeStaff.id;
     });
   }, [makeupClasses, selectedDateStr, userRole, activeStaff]);
 
@@ -347,20 +350,21 @@ export default function AttendanceManager({
     return queue;
   }, [relevantClasses, relevantMakeupClasses, dayOfWeek, selectedDateStr, attendance, students, substitutions]);
 
-  // 4. AUTO-SELECT CA HỌC CẦN ĐIỂM DANH
+  // 4. AUTO-SELECT CA HỌC CẦN ĐIỂM DANH (Chỉ chọn từ ca có lịch trong ngày)
   useEffect(() => {
     if (todaySessionsQueue.length > 0) {
       const isCurrentInQueue = todaySessionsQueue.some((q) => q.id === selectedSessionId);
       if (!isCurrentInQueue || !selectedSessionId) {
         setSelectedSessionId(todaySessionsQueue[0].id);
       }
-    } else if (relevantClasses.length > 0 && !selectedSessionId) {
-      setSelectedSessionId(relevantClasses[0].id);
+    } else if (selectedSessionId) {
+      setSelectedSessionId("");
     }
-  }, [todaySessionsQueue, relevantClasses, selectedSessionId]);
+  }, [todaySessionsQueue, selectedSessionId]);
 
-  // Ca học đang được chọn
+  // Ca học đang được chọn (tuyệt đối không fallback sang lớp không có lịch hôm nay)
   const activeSessionItem = useMemo(() => {
+    if (todaySessionsQueue.length === 0) return undefined;
     return todaySessionsQueue.find((q) => q.id === selectedSessionId) || todaySessionsQueue[0];
   }, [todaySessionsQueue, selectedSessionId]);
 
@@ -369,9 +373,9 @@ export default function AttendanceManager({
 
   // Thông tin lớp chính khóa đang chọn (nếu là Regular)
   const currentClass = useMemo(() => {
-    if (isMakeupSession) return undefined;
-    return classes.find((c) => c.id === selectedSessionId) || relevantClasses[0] || classes[0];
-  }, [classes, selectedSessionId, relevantClasses, isMakeupSession]);
+    if (!activeSessionItem || isMakeupSession) return undefined;
+    return activeSessionItem.classItem;
+  }, [activeSessionItem, isMakeupSession]);
 
   // Thông tin dạy thay nếu có cho ca chính khóa
   const currentSubstitution = useMemo(() => {
@@ -1021,12 +1025,23 @@ export default function AttendanceManager({
       {/* ============================================================== */}
       {/* 3. KHUNG THỰC HIỆN ĐIỂM DANH: GỌN GÀNG, TỐI ƯU SỨC CHỨA DỮ LIỆU */}
       {/* ============================================================== */}
+      {!activeSessionItem ? (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-2.5 shadow-xs">
+          <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
+          <h4 className="font-bold text-base text-slate-800">
+            Không Có Ca Học Nào Trong Ngày {selectedDateStr}
+          </h4>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Ngày đang chọn (Thứ {dayOfWeek === 8 ? "Chủ Nhật" : dayOfWeek}) không có lớp chính khóa hoặc lớp học bù nào thuộc lịch giảng dạy/trực ca của bạn.
+          </p>
+        </div>
+      ) : (
       <div className={`mx-auto transition-all duration-300 ${isMobileFrame ? "max-w-[420px] shadow-2xl rounded-3xl border-4 border-slate-800 bg-slate-100 p-2 sm:p-3" : "w-full"}`}>
         
         {isMobileFrame && (
           <div className="bg-slate-800 text-white rounded-t-2xl py-1 px-3 mb-2 flex items-center justify-between text-[10px]">
             <span className="font-bold font-mono">19:00</span>
-            <span className="text-[9.5px] text-slate-400">Ms. Dung Shiny Mobile TA</span>
+            <span className="text-[9.5px] text-slate-400">Shiny English Mobile TA</span>
             <span>📶 100%</span>
           </div>
         )}
@@ -1576,6 +1591,7 @@ export default function AttendanceManager({
           </div>
         </div>
       </div>
+      )}
 
       {/* ============================================================== */}
       {/* 5. MODAL: TRỢ GIẢNG SOẠN & GỬI NỘI DUNG BÀI HỌC BÙ CHO PHỤ HUYNH */}

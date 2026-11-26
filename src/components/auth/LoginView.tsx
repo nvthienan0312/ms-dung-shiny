@@ -76,7 +76,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
             ✨
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-            Ms. Dung Shiny
+            Shiny English
           </h1>
         </div>
         <p className="text-slate-300 text-xs">
@@ -247,7 +247,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
       {/* Footer Info */}
       <div className="mt-6 text-center text-xs text-slate-400">
-        Trung Tâm Tiếng Anh Ms. Dung Shiny • Bảo Mật & Xác Thực Đăng Nhập
+        Trung Tâm Tiếng Anh Shiny English • Bảo Mật & Xác Thực Đăng Nhập
       </div>
     </div>
   );

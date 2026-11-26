@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { useCenter } from "@/context/CenterContext";
+import { MAKEUP_SESSION_FIXED_PAY } from "@/data/centerData";
+import { getRollingTwoSalaryMonths, getCurrentBillingMonth } from "@/utils/dateHelper";
 import { 
   Coins, 
   CheckCircle2, 
@@ -21,24 +23,44 @@ export interface StaffTimesheetViewerProps {
 }
 
 export default function StaffTimesheetViewer({
-  currentStaffId = "staff-ta1",
+  currentStaffId = "",
   userRole = "ASSISTANT",
 }: StaffTimesheetViewerProps) {
   const { staff, staffTimesheets, confirmStaffTimesheet } = useCenter();
 
+  const rollingMonths = useMemo(() => getRollingTwoSalaryMonths(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentBillingMonth());
   const [feedbackNote, setFeedbackNote] = useState<string>("");
   const [showFeedbackInput, setShowFeedbackInput] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === userRole) || staff[0] || { id: "", fullName: userRole === "TEACHER" ? "Giáo viên" : "Trợ giảng", role: userRole };
+    return (
+      staff.find((s) => s.id === currentStaffId) || {
+        id: "",
+        fullName: userRole === "TEACHER" ? "Giáo viên" : userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên",
+        role: userRole,
+      }
+    );
   }, [staff, currentStaffId, userRole]);
 
-  // Tìm bảng lương của nhân sự này
+  // Tìm bảng lương 2 tháng gần nhất của nhân sự này
+  const staffRollingTimesheets = useMemo(() => {
+    if (!activeStaff.id) return [];
+    const allowed = new Set(rollingMonths);
+    return staffTimesheets.filter((ts) => ts.staffId === activeStaff.id && allowed.has(ts.monthStr));
+  }, [staffTimesheets, activeStaff, rollingMonths]);
+
   const timesheet = useMemo(() => {
     if (!activeStaff.id) return undefined;
-    return staffTimesheets.find((ts) => ts.staffId === activeStaff.id);
-  }, [staffTimesheets, activeStaff]);
+    return (
+      staffRollingTimesheets.find((ts) => ts.monthStr === selectedMonth) ||
+      staffRollingTimesheets[0] ||
+      staffTimesheets.find((ts) => ts.staffId === activeStaff.id && ts.monthStr === selectedMonth)
+    );
+  }, [staffRollingTimesheets, staffTimesheets, activeStaff, selectedMonth]);
+
+  const displayMonth = timesheet?.monthStr || selectedMonth;
 
   const isDraft = timesheet?.status === "DRAFT";
   const isConfirmed = timesheet?.status === "CONFIRMED";
@@ -48,7 +70,7 @@ export default function StaffTimesheetViewer({
     if (!timesheet) return;
 
     confirmStaffTimesheet(timesheet.id, feedbackNote);
-    setToastMessage("🎉 Bạn đã xác nhận bảng công và lương Tháng 10/2026 thành công! Admin đã nhận được phản hồi.");
+    setToastMessage(`🎉 Bạn đã xác nhận bảng công và lương ${displayMonth} thành công! Admin đã nhận được phản hồi.`);
     setShowFeedbackInput(false);
     setTimeout(() => setToastMessage(null), 5000);
   };
@@ -56,10 +78,26 @@ export default function StaffTimesheetViewer({
   if (!timesheet) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
+        <div className="flex items-center justify-center gap-2 mb-2">
+          {rollingMonths.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setSelectedMonth(m)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                selectedMonth === m
+                  ? "bg-amber-500 text-slate-950 border-amber-500"
+                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
         <Coins className="w-10 h-10 text-slate-300 mx-auto" />
-        <h4 className="font-bold text-base text-slate-800">Chưa Có Bảng Lương Tháng 10/2026</h4>
+        <h4 className="font-bold text-base text-slate-800">Chưa Có Bảng Lương {selectedMonth}</h4>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          Hiện tại chưa có dữ liệu bảng chấm công và lương được tạo cho nhân sự <strong className="text-slate-700">{activeStaff.fullName}</strong>. Vui lòng liên hệ Admin để được hỗ trợ.
+          Hiện tại chưa có dữ liệu bảng chấm công và lương {selectedMonth} được tạo cho nhân sự <strong className="text-slate-700">{activeStaff.fullName}</strong>. Vui lòng chọn tháng khác hoặc liên hệ Admin để được hỗ trợ.
         </p>
       </div>
     );
@@ -73,8 +111,24 @@ export default function StaffTimesheetViewer({
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-bold text-base text-slate-900 flex items-center gap-1.5">
               <Coins className="w-5 h-5 text-amber-500" />
-              Phiếu Chấm Công & Bảng Lương Cá Nhân ({timesheet.monthStr || "Tháng 10/2026"})
+              Phiếu Chấm Công & Bảng Lương Cá Nhân ({displayMonth})
             </h3>
+            <div className="flex items-center gap-1">
+              {rollingMonths.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setSelectedMonth(m)}
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border transition ${
+                    displayMonth === m
+                      ? "bg-slate-900 text-amber-300 border-slate-900"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
             {isConfirmed && (
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Đã Xác Nhận Chuẩn
@@ -271,10 +325,20 @@ export default function StaffTimesheetViewer({
                     <td className="py-2 px-3 text-slate-600">{log.classroom}</td>
                     <td className="py-2 px-3 font-mono text-slate-600">{log.startTime} - {log.endTime}</td>
                     <td className="py-2 px-3 text-center font-mono font-bold">{log.durationHours}h</td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-600">{log.ratePerHour.toLocaleString("vi-VN")} đ</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{log.amount.toLocaleString("vi-VN")} đ</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-600">
+                      {log.type === "MAKEUP"
+                        ? `${MAKEUP_SESSION_FIXED_PAY.toLocaleString("vi-VN")} đ/ca`
+                        : `${log.ratePerHour.toLocaleString("vi-VN")} đ`}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                      {(log.type === "MAKEUP" ? MAKEUP_SESSION_FIXED_PAY : log.amount).toLocaleString("vi-VN")} đ
+                    </td>
                     <td className="py-2 px-3 text-center">
-                      {log.type === "SUBSTITUTION" ? (
+                      {log.type === "MAKEUP" ? (
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-indigo-100 text-indigo-900 font-bold border border-indigo-300">
+                          Lớp học bù ({MAKEUP_SESSION_FIXED_PAY.toLocaleString("vi-VN")}đ/ca)
+                        </span>
+                      ) : log.type === "SUBSTITUTION" ? (
                         <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-100 text-amber-900 font-bold border border-amber-300">
                           Dạy/Trực thay
                         </span>

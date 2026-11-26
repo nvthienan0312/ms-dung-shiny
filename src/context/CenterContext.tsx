@@ -45,6 +45,7 @@ import {
   MakeupStudentEntry,
   ExpiredMakeupRecord,
   SessionWorkLog,
+  MAKEUP_SESSION_FIXED_PAY,
   ZaloAccountConfig,
   ZaloMessageLog,
   ZaloAccountRole,
@@ -67,7 +68,7 @@ import {
   STAFF_DEFAULT_PASSWORD 
 } from "@/types/auth";
 import { normalizePhoneNumber, getRoleName } from "@/utils/authHelper";
-import { calculateMonthLessons } from "@/utils/tuitionHelper";
+import { calculateMonthLessons, computeStudentTuitionBreakdown } from "@/utils/tuitionHelper";
 import { 
   sendZaloOAServiceMessage, 
   copyToClipboardAndOpenZaloGroup,
@@ -83,7 +84,47 @@ import {
   buildZaloAccountKey,
   formatDisplayPhone,
 } from "@/utils/zaloHelper";
-import { getTodayDateString, isMakeupClassPast } from "@/utils/dateHelper";
+import {
+  getTodayDateString,
+  isMakeupClassPast,
+  isWithinRollingTwoMonths,
+  parseMonthYear,
+  getDayOfWeekNumber,
+} from "@/utils/dateHelper";
+
+function calculateTimesheetMetrics(
+  logs: SessionWorkLog[],
+  hourlyRate: number,
+  allowance: number,
+  bonus: number,
+  otherAdjustment: number,
+  overrideTotalHours?: number
+) {
+  const safeLogs = logs || [];
+  const makeupLogs = safeLogs.filter((l) => l.type === "MAKEUP");
+  const makeupHours = makeupLogs.reduce((s, l) => s + (l.durationHours || 0), 0);
+  const makeupPay = makeupLogs.length * MAKEUP_SESSION_FIXED_PAY;
+  const calculatedTotalHours = Number(safeLogs.reduce((s, l) => s + (l.durationHours || 0), 0).toFixed(2));
+  const totalHours = overrideTotalHours !== undefined ? overrideTotalHours : calculatedTotalHours;
+  const regularHours = Math.max(0, totalHours - makeupHours);
+  const baseSalary = Math.round(regularHours * hourlyRate) + makeupPay;
+  const totalNetSalary = baseSalary + allowance + bonus + otherAdjustment;
+  return {
+    totalHours,
+    totalSessions: safeLogs.length,
+    baseSalary,
+    totalNetSalary,
+  };
+}
+
+function calcSlotDurationHours(startTime?: string, endTime?: string): number {
+  if (!startTime || !endTime) return 1.5;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return 1.5;
+  const diff = (eh * 60 + em - (sh * 60 + sm)) / 60;
+  return diff > 0 ? Number(diff.toFixed(2)) : 1.5;
+}
 
 const STORAGE_KEY = "ms_dung_shiny_center_data_v23_clean";
 const LEGACY_STORAGE_KEY = "ms_dung_shiny_center_data_v22";
@@ -181,6 +222,7 @@ interface CenterContextType {
   confirmStaffTimesheet: (timesheetId: string, feedbackNote?: string) => void;
   updateStaffTimesheet: (timesheetId: string, updates: Partial<StaffSalaryTimesheet>) => void;
   recalculateStaffTimesheetHours: (timesheetId: string) => void;
+  syncMonthlyTimesheets: (monthStr: string) => { count: number };
   sendTimesheetToStaff: (timesheetId: string | "ALL") => void;
   markTimesheetPaid: (timesheetId: string) => void;
   markTimesheetUnpaid: (timesheetId: string) => void;
@@ -353,35 +395,64 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   const applyDataPayload = useCallback((parsed: any) => {
     if (!parsed || typeof parsed !== "object") return;
     try {
-      if (parsed.classes && Array.isArray(parsed.classes)) {
+      const loadedStaffList: StaffItem[] =
+        parsed.staff && Array.isArray(parsed.staff) ? parsed.staff : [];
+      setStaff(loadedStaffList);
+
+      if (parsed.courses && Array.isArray(parsed.courses)) setCourses(parsed.courses);
+      else setCourses([]);
+
+      const rawClasses: ClassItem[] =
+        parsed.classes && Array.isArray(parsed.classes) ? parsed.classes : [];
+
+      let sanitizedStudentsList: StudentItem[] = [];
+      if (parsed.students && Array.isArray(parsed.students)) {
+        sanitizedStudentsList = parsed.students.map((s: any) => {
+          const copy = { ...s };
+          if (copy.fixedDiscount && copy.fixedDiscount > 0 && !(copy.discountPercent && copy.discountPercent > 0)) {
+            const matchedCls = rawClasses.find((c) => c.id === copy.classId);
+            const baseMonthly = (copy.feePerLesson || matchedCls?.feePerLesson || 200000) * 8;
+            copy.discountPercent =
+              baseMonthly > 0
+                ? Math.min(100, Math.round((copy.fixedDiscount / baseMonthly) * 100))
+                : 0;
+            if (!copy.fixedDiscountNote && copy.discountPercent > 0) {
+              copy.fixedDiscountNote = `Giảm ${copy.discountPercent}% học phí theo buổi`;
+            }
+          }
+          delete copy.fixedDiscount;
+          return copy as StudentItem;
+        });
+        setStudents(sanitizedStudentsList);
+      } else {
+        setStudents([]);
+      }
+
+      if (rawClasses.length > 0) {
         const usedThemes = new Set<string>();
-        const sanitizedClasses = parsed.classes.map((cls: ClassItem, idx: number) => {
+        const sanitizedClasses = rawClasses.map((cls: ClassItem, idx: number) => {
           let tId = cls.colorTheme;
           if (!tId || usedThemes.has(tId) || !CLASS_THEMES.some((t) => t.id === tId)) {
             const free = CLASS_THEMES.find((t) => !usedThemes.has(t.id)) || CLASS_THEMES[idx % CLASS_THEMES.length];
             tId = free.id;
           }
           usedThemes.add(tId);
-          return { ...cls, colorTheme: tId };
+          return {
+            ...cls,
+            colorTheme: tId,
+            currentStudents: sanitizedStudentsList.filter(
+              (s) => s.classId === cls.id && s.learningStatus !== "DROPPED"
+            ).length,
+          };
         });
         setClasses(sanitizedClasses);
       } else {
         setClasses([]);
       }
 
-      if (parsed.courses && Array.isArray(parsed.courses)) setCourses(parsed.courses);
-      else setCourses([]);
-      if (parsed.staff && Array.isArray(parsed.staff)) setStaff(parsed.staff);
-      else setStaff([]);
-      
-      if (parsed.students && Array.isArray(parsed.students)) {
-        setStudents(parsed.students);
-      } else {
-        setStudents([]);
-      }
-
       if (parsed.classrooms && Array.isArray(parsed.classrooms)) setClassrooms(parsed.classrooms);
       else setClassrooms([]);
+
       if (parsed.substitutions && Array.isArray(parsed.substitutions)) setSubstitutions(parsed.substitutions);
       else setSubstitutions([]);
       
@@ -417,8 +488,36 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
       let loadedTimesheets: StaffSalaryTimesheet[] = [];
       if (parsed.staffTimesheets && Array.isArray(parsed.staffTimesheets)) {
-        loadedTimesheets = parsed.staffTimesheets;
-        setStaffTimesheets(parsed.staffTimesheets);
+        loadedTimesheets = parsed.staffTimesheets.map((ts: StaffSalaryTimesheet) => {
+          if (ts.paymentStatus === "PAID") return ts;
+          const normalizedLogs = (ts.sessionLogs || []).map((l) =>
+            l.type === "MAKEUP"
+              ? { ...l, ratePerHour: MAKEUP_SESSION_FIXED_PAY, amount: MAKEUP_SESSION_FIXED_PAY }
+              : l
+          );
+          const otherAdj = ts.otherAdjustment ?? ts.deduction ?? 0;
+          const metrics = calculateTimesheetMetrics(
+            normalizedLogs,
+            ts.hourlyRate,
+            ts.allowance,
+            ts.bonus,
+            otherAdj
+          );
+          return {
+            ...ts,
+            sessionLogs: normalizedLogs,
+            totalHours: normalizedLogs.length > 0 ? metrics.totalHours : ts.totalHours,
+            totalSessions: normalizedLogs.length > 0 ? metrics.totalSessions : ts.totalSessions,
+            baseSalary:
+              normalizedLogs.length > 0 ? metrics.baseSalary : Math.round(ts.totalHours * ts.hourlyRate),
+            totalNetSalary:
+              (normalizedLogs.length > 0 ? metrics.baseSalary : Math.round(ts.totalHours * ts.hourlyRate)) +
+              ts.allowance +
+              ts.bonus +
+              otherAdj,
+          };
+        });
+        setStaffTimesheets(loadedTimesheets);
       } else {
         setStaffTimesheets([]);
       }
@@ -444,15 +543,34 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       if (parsed.studentTuitionBills && Array.isArray(parsed.studentTuitionBills)) {
         const sanitizedBills = parsed.studentTuitionBills.map((b: StudentTuitionBill) => {
           const sur = b.surcharge !== undefined ? b.surcharge : (b.adjustmentAmount > 0 ? b.adjustmentAmount : 0);
-          const disc = b.discount !== undefined ? b.discount : (b.adjustmentAmount < 0 ? Math.abs(b.adjustmentAmount) : 0);
+          const stu = sanitizedStudentsList.find((s) => s.id === b.studentId);
+          const effectivePct =
+            b.discountPercent && b.discountPercent > 0
+              ? b.discountPercent
+              : b.status !== "PAID" && stu?.discountPercent && stu.discountPercent > 0
+              ? stu.discountPercent
+              : 0;
+          const calc = b.calculatedAmount ?? b.lessonCount * b.feePerLesson;
+          let disc = b.discount !== undefined ? b.discount : (b.adjustmentAmount < 0 ? Math.abs(b.adjustmentAmount) : 0);
+          if (b.status !== "PAID" && effectivePct > 0) {
+            disc = Math.round((calc * effectivePct) / 100);
+          }
           return {
             ...b,
+            calculatedAmount: calc,
             surcharge: sur,
             surchargeNote: b.surchargeNote || (b.adjustmentAmount > 0 ? (b.notes || "") : ""),
+            discountPercent: effectivePct,
             discount: disc,
-            discountNote: b.discountNote || (b.adjustmentAmount < 0 ? (b.notes || "") : ""),
+            discountNote:
+              b.discountNote ||
+              (effectivePct > 0
+                ? `Giảm ${effectivePct}% học phí theo buổi`
+                : b.adjustmentAmount < 0
+                ? (b.notes || "")
+                : ""),
             adjustmentAmount: sur - disc,
-            finalAmount: b.calculatedAmount + sur - disc,
+            finalAmount: Math.max(0, calc + sur - disc),
           };
         });
         setStudentTuitionBills(sanitizedBills);
@@ -469,14 +587,13 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       if (parsed.makeupClasses && Array.isArray(parsed.makeupClasses)) {
         setMakeupClasses(parsed.makeupClasses);
 
-        // Tự động đồng bộ các lớp học bù vào bảng công nhân sự
+        // Tự động đồng bộ các lớp học bù vào bảng công nhân sự (120.000đ/ca cố định)
         const currentTs = loadedTimesheets;
         let tsUpdated = false;
         parsed.makeupClasses.forEach((mc: MakeupClass) => {
           const logId = `log-makeup-${mc.id}`;
           const targetTs = currentTs.find((t: StaffSalaryTimesheet) => t.staffId === mc.teacherOrAssistantId && t.monthStr === mc.monthStr);
           if (targetTs && !targetTs.sessionLogs?.some((l: SessionWorkLog) => l.id === logId)) {
-            const hRate = targetTs.hourlyRate || 120000;
             const dur = mc.durationHours || 1.5;
             const newLog: SessionWorkLog = {
               id: logId,
@@ -486,16 +603,23 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
               startTime: mc.startTime,
               endTime: mc.endTime,
               durationHours: dur,
-              ratePerHour: hRate,
-              amount: dur * hRate,
+              ratePerHour: MAKEUP_SESSION_FIXED_PAY,
+              amount: MAKEUP_SESSION_FIXED_PAY,
               type: "MAKEUP",
             };
             targetTs.sessionLogs = [...(targetTs.sessionLogs || []), newLog];
-            targetTs.totalHours = targetTs.sessionLogs.reduce((s, l) => s + (l.durationHours || 0), 0);
-            targetTs.totalSessions = targetTs.sessionLogs.length;
-            targetTs.baseSalary = targetTs.totalHours * targetTs.hourlyRate;
             const adj = targetTs.otherAdjustment ?? targetTs.deduction ?? 0;
-            targetTs.totalNetSalary = targetTs.baseSalary + targetTs.allowance + targetTs.bonus + adj;
+            const metrics = calculateTimesheetMetrics(
+              targetTs.sessionLogs,
+              targetTs.hourlyRate,
+              targetTs.allowance,
+              targetTs.bonus,
+              adj
+            );
+            targetTs.totalHours = metrics.totalHours;
+            targetTs.totalSessions = metrics.totalSessions;
+            targetTs.baseSalary = metrics.baseSalary;
+            targetTs.totalNetSalary = metrics.totalNetSalary;
             tsUpdated = true;
           }
         });
@@ -852,12 +976,80 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateClass = (id: string, updatedCls: Partial<ClassItem>) => {
+    const oldClass = classes.find((cls) => cls.id === id);
+    const nextFeePerLesson =
+      updatedCls.feePerLesson !== undefined
+        ? updatedCls.feePerLesson
+        : oldClass?.feePerLesson;
+    const nextSchedules = updatedCls.schedules ?? oldClass?.schedules;
+    const nextClassName = updatedCls.name ?? oldClass?.name;
+
     setClasses((prev) =>
-      prev.map((cls) => (cls.id === id ? { ...cls, ...updatedCls } : cls))
+      prev.map((cls) =>
+        cls.id === id
+          ? {
+              ...cls,
+              ...updatedCls,
+              ...(nextFeePerLesson !== undefined
+                ? { feePerLesson: nextFeePerLesson, monthlyFee: nextFeePerLesson * 8 }
+                : {}),
+            }
+          : cls
+      )
     );
-    if (updatedCls.name) {
+
+    if (updatedCls.name || updatedCls.feePerLesson !== undefined) {
       setStudents((prev) =>
-        prev.map((s) => (s.classId === id ? { ...s, className: updatedCls.name } : s))
+        prev.map((s) =>
+          s.classId === id
+            ? {
+                ...s,
+                ...(updatedCls.name ? { className: updatedCls.name } : {}),
+                ...(updatedCls.feePerLesson !== undefined
+                  ? { feePerLesson: updatedCls.feePerLesson, monthlyFee: updatedCls.feePerLesson * 8 }
+                  : {}),
+              }
+            : s
+        )
+      );
+    }
+
+    if (
+      updatedCls.feePerLesson !== undefined ||
+      updatedCls.schedules !== undefined ||
+      updatedCls.name
+    ) {
+      setStudentTuitionBills((prev) =>
+        prev.map((bill) => {
+          const stu = students.find((s) => s.id === bill.studentId);
+          if (bill.classId !== id && stu?.classId !== id) return bill;
+          if (bill.status === "PAID") {
+            return nextClassName ? { ...bill, classId: id, className: nextClassName } : { ...bill, classId: id };
+          }
+          const newLessons = nextSchedules
+            ? calculateMonthLessons(bill.billingMonth, nextSchedules).lessonCount || bill.lessonCount
+            : bill.lessonCount;
+          const newFee =
+            updatedCls.feePerLesson !== undefined ? updatedCls.feePerLesson : bill.feePerLesson;
+          const breakdown = computeStudentTuitionBreakdown({
+            lessonCount: newLessons,
+            feePerLesson: newFee,
+            discountPercent: bill.discountPercent ?? stu?.discountPercent,
+            surcharge: bill.surcharge || 0,
+          });
+          return {
+            ...bill,
+            classId: id,
+            className: nextClassName || bill.className,
+            lessonCount: newLessons,
+            feePerLesson: newFee,
+            calculatedAmount: breakdown.calculatedAmount,
+            discountPercent: breakdown.discountPercent,
+            discount: breakdown.discount,
+            adjustmentAmount: breakdown.adjustmentAmount,
+            finalAmount: breakdown.finalAmount,
+          };
+        })
       );
     }
   };
@@ -868,6 +1060,51 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       prev.map((s) => (s.classId === id ? { ...s, classId: undefined, className: undefined } : s))
     );
     setSubstitutions((prev) => prev.filter((sub) => sub.classId !== id));
+    setAttendance((prev) => prev.filter((a) => a.classId !== id));
+    setClassLogs((prev) => prev.filter((l) => l.classId !== id));
+    setWorkbookChecks((prev) => prev.filter((w) => w.classId !== id));
+    setIncidentNotes((prev) => prev.filter((n) => n.classId !== id));
+    setMonthlyExamReports((prev) => prev.filter((r) => r.classId !== id));
+    setAssignments((prev) => prev.filter((a) => a.classId !== id));
+    setHomeworkSubmissions((prev) => prev.filter((sub) => sub.classId !== id));
+    setLeaveRequests((prev) => prev.filter((lr) => lr.classId !== id));
+    setStudentTuitionBills((prev) => prev.filter((b) => b.classId !== id || b.status === "PAID"));
+    setMakeupClasses((prev) =>
+      prev.map((mc) =>
+        mc.targetClassId === id
+          ? { ...mc, targetClassId: undefined, targetClassName: undefined }
+          : mc
+      )
+    );
+    setStaffTimesheets((prev) =>
+      prev.map((ts) => {
+        if (ts.paymentStatus === "PAID") return ts;
+        const regPrefix = `log-reg-${id}-`;
+        const taPrefix = `log-ta-${id}-`;
+        if (!ts.sessionLogs?.some((l) => l.id.startsWith(regPrefix) || l.id.startsWith(taPrefix))) {
+          return ts;
+        }
+        const remainingLogs = ts.sessionLogs.filter(
+          (l) => !l.id.startsWith(regPrefix) && !l.id.startsWith(taPrefix)
+        );
+        const otherAdj = ts.otherAdjustment ?? ts.deduction ?? 0;
+        const metrics = calculateTimesheetMetrics(
+          remainingLogs,
+          ts.hourlyRate,
+          ts.allowance,
+          ts.bonus,
+          otherAdj
+        );
+        return {
+          ...ts,
+          sessionLogs: remainingLogs,
+          totalHours: metrics.totalHours,
+          totalSessions: metrics.totalSessions,
+          baseSalary: metrics.baseSalary,
+          totalNetSalary: metrics.totalNetSalary,
+        };
+      })
+    );
   };
 
   // STUDENT ACTIONS
@@ -1009,41 +1246,63 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
-    // 4b. Tự động cập nhật hóa đơn chưa thanh toán nếu Admin thay đổi giảm trừ cố định hoặc đơn giá buổi
+    // 4b. Tự động cập nhật hóa đơn chưa thanh toán nếu Admin thay đổi giảm trừ (%/VNĐ), đơn giá buổi hoặc chuyển lớp
     if (
-      updatedStu.fixedDiscount !== undefined ||
+      updatedStu.discountPercent !== undefined ||
       updatedStu.fixedDiscountNote !== undefined ||
-      updatedStu.feePerLesson !== undefined
+      updatedStu.feePerLesson !== undefined ||
+      updatedStu.classId !== undefined
     ) {
-      const nextFeePerLesson = updatedStu.feePerLesson ?? currentStu?.feePerLesson;
-      const nextFixedDiscount = Math.max(0, updatedStu.fixedDiscount ?? currentStu?.fixedDiscount ?? 0);
-      const nextFixedDiscountNote =
+      const nextClass = classes.find((c) => c.id === (updatedStu.classId ?? currentStu?.classId));
+      const nextFeePerLesson =
+        updatedStu.feePerLesson ?? currentStu?.feePerLesson ?? nextClass?.feePerLesson;
+      const nextDiscountPercent = Math.min(
+        100,
+        Math.max(0, updatedStu.discountPercent ?? currentStu?.discountPercent ?? 0)
+      );
+      const nextDiscountNote =
         (updatedStu.fixedDiscountNote ?? currentStu?.fixedDiscountNote)?.trim() ||
-        (nextFixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
+        (nextDiscountPercent > 0 ? `Giảm ${nextDiscountPercent}% học phí theo buổi` : "");
 
       setStudentTuitionBills((prev) =>
         prev.map((bill) => {
           if (bill.studentId !== id || bill.status === "PAID") return bill;
           const isManualCustomDiscount =
             (bill.discount || 0) > 0 &&
+            !(bill.discountPercent && bill.discountPercent > 0) &&
             Boolean(bill.discountNote) &&
             !bill.discountNote?.includes("cố định") &&
+            !bill.discountNote?.includes("%") &&
             bill.discountNote !== oldStudent?.fixedDiscountNote;
 
-          const effectiveFee = nextFeePerLesson || bill.feePerLesson;
-          const calculatedAmount = bill.lessonCount * effectiveFee;
-          const sur = bill.surcharge || 0;
-          const disc = isManualCustomDiscount ? (bill.discount || 0) : nextFixedDiscount;
-          const discNote = isManualCustomDiscount ? bill.discountNote : nextFixedDiscountNote;
-          const adj = sur - disc;
+          const effectiveLessons =
+            updatedStu.classId !== undefined && nextClass
+              ? calculateMonthLessons(bill.billingMonth, nextClass.schedules).lessonCount ||
+                bill.lessonCount
+              : bill.lessonCount;
+          const effectiveFee =
+            nextFeePerLesson !== undefined ? nextFeePerLesson : bill.feePerLesson;
+          const breakdown = computeStudentTuitionBreakdown({
+            lessonCount: effectiveLessons,
+            feePerLesson: effectiveFee,
+            discountPercent: isManualCustomDiscount ? 0 : nextDiscountPercent,
+            surcharge: bill.surcharge || 0,
+          });
+          const disc = isManualCustomDiscount ? (bill.discount || 0) : breakdown.discount;
+          const adj = breakdown.surcharge - disc;
+          const discNote = isManualCustomDiscount ? bill.discountNote : nextDiscountNote;
+
           return {
             ...bill,
+            ...(nextClass ? { classId: nextClass.id, className: nextClass.name } : {}),
+            lessonCount: effectiveLessons,
             feePerLesson: effectiveFee,
-            calculatedAmount,
+            calculatedAmount: breakdown.calculatedAmount,
+            discountPercent: breakdown.discountPercent,
             discount: disc,
             discountNote: discNote,
             adjustmentAmount: adj,
-            finalAmount: Math.max(0, calculatedAmount + adj),
+            finalAmount: Math.max(0, breakdown.calculatedAmount + adj),
           };
         })
       );
@@ -1129,6 +1388,25 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         currentStudents: getStudentCountForClass(cls.id, nextStudents),
       }))
     );
+    setAttendance((prev) => prev.filter((a) => a.studentId !== id));
+    setWorkbookChecks((prev) => prev.filter((w) => w.studentId !== id));
+    setIncidentNotes((prev) => prev.filter((n) => n.studentId !== id));
+    setMonthlyExamReports((prev) => prev.filter((r) => r.studentId !== id));
+    setHomeworkSubmissions((prev) => prev.filter((sub) => sub.studentId !== id));
+    setLeaveRequests((prev) => prev.filter((lr) => lr.studentId !== id));
+    setStudentTuitionBills((prev) => prev.filter((b) => b.studentId !== id || b.status === "PAID"));
+    setMakeupClasses((prev) =>
+      prev.map((mc) => ({
+        ...mc,
+        students: mc.students.filter((st) => st.studentId !== id),
+      }))
+    );
+    setClassLogs((prev) =>
+      prev.map((l) => ({
+        ...l,
+        studentRemarks: (l.studentRemarks || []).filter((r) => r.studentId !== id),
+      }))
+    );
   };
 
   // STAFF ACTIONS
@@ -1198,6 +1476,34 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   const deleteStaff = (id: string) => {
     setStaff((prev) => prev.filter((s) => s.id !== id));
     setUserAccounts((prev) => prev.filter((acc) => acc.staffId !== id));
+    setClasses((prev) =>
+      prev.map((cls) => ({
+        ...cls,
+        teacherId: cls.teacherId === id ? "" : cls.teacherId,
+        teacherName: cls.teacherId === id ? "Chưa phân công" : cls.teacherName,
+        assistantId: cls.assistantId === id ? "" : cls.assistantId,
+        assistantName: cls.assistantId === id ? "Chưa phân công" : cls.assistantName,
+        schedules: cls.schedules.map((sch) => ({
+          ...sch,
+          teacherId: sch.teacherId === id ? "" : sch.teacherId,
+          teacherName: sch.teacherId === id ? "Chưa phân công" : sch.teacherName,
+          assistantId: sch.assistantId === id ? "" : sch.assistantId,
+          assistantName: sch.assistantId === id ? "Chưa phân công" : sch.assistantName,
+        })),
+      }))
+    );
+    setSubstitutions((prev) =>
+      prev
+        .map((sub) => ({
+          ...sub,
+          subTeacherId: sub.subTeacherId === id ? undefined : sub.subTeacherId,
+          subTeacherName: sub.subTeacherId === id ? undefined : sub.subTeacherName,
+          subAssistantId: sub.subAssistantId === id ? undefined : sub.subAssistantId,
+          subAssistantName: sub.subAssistantId === id ? undefined : sub.subAssistantName,
+        }))
+        .filter((sub) => sub.subTeacherId || sub.subAssistantId)
+    );
+    setStaffTimesheets((prev) => prev.filter((ts) => ts.staffId !== id || ts.paymentStatus === "PAID"));
   };
 
   const transferStaffClasses = (
@@ -1297,7 +1603,66 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateCourse = (id: string, updatedCrs: Partial<CourseItem>) => {
+    const oldCourse = courses.find((c) => c.id === id);
+    const nextCourseFee =
+      updatedCrs.standardFeePerLesson !== undefined
+        ? updatedCrs.standardFeePerLesson
+        : oldCourse?.standardFeePerLesson;
+
     setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, ...updatedCrs } : c)));
+
+    // Tự động link học phí/buổi & tên chương trình sang toàn bộ Lớp -> Học sinh -> Hóa đơn chưa thu
+    const affectedClassIds = classes.filter((cls) => cls.courseId === id).map((cls) => cls.id);
+    if (
+      affectedClassIds.length > 0 &&
+      (updatedCrs.standardFeePerLesson !== undefined || updatedCrs.name !== undefined)
+    ) {
+      setClasses((prev) =>
+        prev.map((cls) =>
+          cls.courseId === id
+            ? {
+                ...cls,
+                ...(updatedCrs.name ? { courseName: updatedCrs.name } : {}),
+                ...(updatedCrs.standardFeePerLesson !== undefined && nextCourseFee !== undefined
+                  ? { feePerLesson: nextCourseFee, monthlyFee: nextCourseFee * 8 }
+                  : {}),
+              }
+            : cls
+        )
+      );
+
+      if (updatedCrs.standardFeePerLesson !== undefined && nextCourseFee !== undefined) {
+        setStudents((prev) =>
+          prev.map((stu) =>
+            stu.classId && affectedClassIds.includes(stu.classId)
+              ? { ...stu, feePerLesson: nextCourseFee, monthlyFee: nextCourseFee * 8 }
+              : stu
+          )
+        );
+
+        setStudentTuitionBills((prev) =>
+          prev.map((bill) => {
+            if (!affectedClassIds.includes(bill.classId) || bill.status === "PAID") return bill;
+            const stu = students.find((s) => s.id === bill.studentId);
+            const breakdown = computeStudentTuitionBreakdown({
+              lessonCount: bill.lessonCount,
+              feePerLesson: nextCourseFee,
+              discountPercent: bill.discountPercent ?? stu?.discountPercent,
+              surcharge: bill.surcharge || 0,
+            });
+            return {
+              ...bill,
+              feePerLesson: nextCourseFee,
+              calculatedAmount: breakdown.calculatedAmount,
+              discountPercent: breakdown.discountPercent,
+              discount: breakdown.discount,
+              adjustmentAmount: breakdown.adjustmentAmount,
+              finalAmount: breakdown.finalAmount,
+            };
+          })
+        );
+      }
+    }
   };
 
   const deleteCourse = (id: string): { success: boolean; message?: string } => {
@@ -1455,7 +1820,19 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteClassLog = (id: string) => {
+    const targetLog = classLogs.find((l) => l.id === id);
     setClassLogs((prev) => prev.filter((l) => l.id !== id));
+    if (targetLog) {
+      const removedAssignIds = assignments
+        .filter((a) => a.classId === targetLog.classId && a.sessionDate === targetLog.dateStr)
+        .map((a) => a.id);
+      if (removedAssignIds.length > 0) {
+        setAssignments((prev) => prev.filter((a) => !removedAssignIds.includes(a.id)));
+        setHomeworkSubmissions((prev) =>
+          prev.filter((sub) => !sub.assignmentId || !removedAssignIds.includes(sub.assignmentId))
+        );
+      }
+    }
   };
 
   // ==============================================================
@@ -1535,7 +1912,6 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     setStaffTimesheets((prev) =>
       prev.map((ts) => {
         if (ts.id !== timesheetId) return ts;
-        const totalHours = updates.totalHours !== undefined ? updates.totalHours : ts.totalHours;
         const hourlyRate = updates.hourlyRate !== undefined ? updates.hourlyRate : ts.hourlyRate;
         const allowance = updates.allowance !== undefined ? updates.allowance : ts.allowance; // Phụ cấp đi lại
         const bonus = updates.bonus !== undefined ? updates.bonus : ts.bonus; // Phụ cấp công việc
@@ -1543,20 +1919,26 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         const otherAdjustment = updates.otherAdjustment !== undefined 
           ? updates.otherAdjustment 
           : (updates.deduction !== undefined ? updates.deduction : (ts.otherAdjustment ?? ts.deduction ?? 0));
-        const baseSalary = totalHours * hourlyRate;
-        const totalNetSalary = baseSalary + allowance + bonus + otherAdjustment;
+        const metrics = calculateTimesheetMetrics(
+          ts.sessionLogs || [],
+          hourlyRate,
+          allowance,
+          bonus,
+          otherAdjustment,
+          updates.totalHours
+        );
 
         return {
           ...ts,
           ...updates,
-          totalHours,
+          totalHours: metrics.totalHours,
           hourlyRate,
           allowance,
           bonus,
           deduction: otherAdjustment,
           otherAdjustment,
-          baseSalary,
-          totalNetSalary,
+          baseSalary: metrics.baseSalary,
+          totalNetSalary: metrics.totalNetSalary,
         };
       })
     );
@@ -1566,23 +1948,174 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     setStaffTimesheets((prev) =>
       prev.map((ts) => {
         if (ts.id !== timesheetId) return ts;
-        const calculatedHours = (ts.sessionLogs || []).reduce((sum, log) => sum + (log.durationHours || 0), 0);
-        const totalSessions = (ts.sessionLogs || []).length;
-        const baseSalary = calculatedHours * ts.hourlyRate;
         const otherAdjustment = ts.otherAdjustment !== undefined ? ts.otherAdjustment : (ts.deduction || 0);
-        const totalNetSalary = baseSalary + ts.allowance + ts.bonus + otherAdjustment;
+        const metrics = calculateTimesheetMetrics(
+          ts.sessionLogs || [],
+          ts.hourlyRate,
+          ts.allowance,
+          ts.bonus,
+          otherAdjustment
+        );
 
         return {
           ...ts,
-          totalHours: calculatedHours,
-          totalSessions,
-          baseSalary,
-          totalNetSalary,
+          totalHours: metrics.totalHours,
+          totalSessions: metrics.totalSessions,
+          baseSalary: metrics.baseSalary,
+          totalNetSalary: metrics.totalNetSalary,
           deduction: otherAdjustment,
           otherAdjustment,
         };
       })
     );
+  };
+
+  const syncMonthlyTimesheets = (monthStr: string): { count: number } => {
+    const parsed = parseMonthYear(monthStr);
+    if (!parsed) return { count: 0 };
+    const { month, year } = parsed;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const staffLogsMap: Record<string, SessionWorkLog[]> = {};
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const dow = getDayOfWeekNumber(dateStr);
+
+      classes.forEach((cls) => {
+        (cls.schedules || []).forEach((slot) => {
+          if (slot.dayOfWeek !== dow) return;
+          const dur = calcSlotDurationHours(slot.startTime, slot.endTime);
+          const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === dateStr);
+          const roomName = slot.classroom || cls.classroom || "Phòng học";
+
+          const baseTeacherId = slot.teacherId || cls.teacherId;
+          const effTeacherId = sub?.subTeacherId || baseTeacherId;
+          if (effTeacherId) {
+            const stf = staff.find((s) => s.id === effTeacherId);
+            const rate = stf?.hourlyRate || 250000;
+            const isSub = Boolean(sub?.subTeacherId && sub.subTeacherId !== baseTeacherId);
+            if (!staffLogsMap[effTeacherId]) staffLogsMap[effTeacherId] = [];
+            staffLogsMap[effTeacherId].push({
+              id: `log-reg-${cls.id}-${dateStr}-${slot.startTime}`,
+              dateStr,
+              className: cls.name,
+              classroom: roomName,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              durationHours: dur,
+              ratePerHour: rate,
+              amount: Math.round(dur * rate),
+              type: isSub ? "SUBSTITUTION" : "REGULAR",
+            });
+          }
+
+          const baseAssistantId = slot.assistantId || cls.assistantId;
+          const effAssistantId = sub?.subAssistantId || baseAssistantId;
+          if (effAssistantId) {
+            const stf = staff.find((s) => s.id === effAssistantId);
+            const rate = stf?.hourlyRate || 100000;
+            const isSub = Boolean(sub?.subAssistantId && sub.subAssistantId !== baseAssistantId);
+            if (!staffLogsMap[effAssistantId]) staffLogsMap[effAssistantId] = [];
+            staffLogsMap[effAssistantId].push({
+              id: `log-ta-${cls.id}-${dateStr}-${slot.startTime}`,
+              dateStr,
+              className: cls.name,
+              classroom: roomName,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              durationHours: dur,
+              ratePerHour: rate,
+              amount: Math.round(dur * rate),
+              type: isSub ? "SUBSTITUTION" : "REGULAR",
+            });
+          }
+        });
+      });
+    }
+
+    // Thêm các ca Lớp học bù trong tháng (cố định 120.000đ/ca)
+    makeupClasses.forEach((mc) => {
+      if (mc.monthStr !== monthStr || !mc.teacherOrAssistantId) return;
+      const dur = mc.durationHours || 1.5;
+      if (!staffLogsMap[mc.teacherOrAssistantId]) staffLogsMap[mc.teacherOrAssistantId] = [];
+      staffLogsMap[mc.teacherOrAssistantId].push({
+        id: `log-makeup-${mc.id}`,
+        dateStr: mc.dateStr,
+        className: `[LỚP BÙ] ${mc.title}`,
+        classroom: mc.classroomName || "Phòng học bù",
+        startTime: mc.startTime,
+        endTime: mc.endTime,
+        durationHours: dur,
+        ratePerHour: MAKEUP_SESSION_FIXED_PAY,
+        amount: MAKEUP_SESSION_FIXED_PAY,
+        type: "MAKEUP",
+      });
+    });
+
+    let affectedCount = 0;
+    setStaffTimesheets((prev) => {
+      const updated = [...prev];
+      staff.forEach((st) => {
+        const autoLogs = staffLogsMap[st.id] || [];
+        const existingIdx = updated.findIndex(
+          (t) => t.staffId === st.id && t.monthStr === monthStr
+        );
+        if (existingIdx >= 0) {
+          const existing = updated[existingIdx];
+          if (existing.paymentStatus === "PAID") return;
+          const customLogs = (existing.sessionLogs || []).filter(
+            (l) => !l.id.startsWith("log-reg-") && !l.id.startsWith("log-ta-") && !l.id.startsWith("log-makeup-")
+          );
+          const mergedLogs = [...autoLogs, ...customLogs].sort((a, b) =>
+            a.dateStr.localeCompare(b.dateStr)
+          );
+          const otherAdj = existing.otherAdjustment ?? existing.deduction ?? 0;
+          const metrics = calculateTimesheetMetrics(
+            mergedLogs,
+            existing.hourlyRate,
+            existing.allowance,
+            existing.bonus,
+            otherAdj
+          );
+          updated[existingIdx] = {
+            ...existing,
+            staffName: st.fullName,
+            role: st.role,
+            sessionLogs: mergedLogs,
+            totalHours: metrics.totalHours,
+            totalSessions: metrics.totalSessions,
+            baseSalary: metrics.baseSalary,
+            totalNetSalary: metrics.totalNetSalary,
+          };
+          affectedCount++;
+        } else if (autoLogs.length > 0 || st.status === "ACTIVE") {
+          const sortedLogs = [...autoLogs].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+          const metrics = calculateTimesheetMetrics(sortedLogs, st.hourlyRate, 0, 0, 0);
+          updated.unshift({
+            id: `ts-${st.id}-${month}${year}`,
+            staffId: st.id,
+            staffName: st.fullName,
+            role: st.role,
+            monthStr,
+            hourlyRate: st.hourlyRate,
+            totalHours: metrics.totalHours,
+            totalSessions: metrics.totalSessions,
+            baseSalary: metrics.baseSalary,
+            allowance: 0,
+            bonus: 0,
+            deduction: 0,
+            otherAdjustment: 0,
+            totalNetSalary: metrics.totalNetSalary,
+            status: "DRAFT",
+            sessionLogs: sortedLogs,
+          });
+          affectedCount++;
+        }
+      });
+      return updated;
+    });
+
+    return { count: affectedCount };
   };
 
   const sendTimesheetToStaff = (timesheetId: string | "ALL") => {
@@ -1650,6 +2183,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAssignment = (id: string) => {
     setAssignments((prev) => prev.filter((a) => a.id !== id));
+    setHomeworkSubmissions((prev) => prev.filter((sub) => sub.assignmentId !== id));
   };
 
   // ==============================================================
@@ -1785,120 +2319,170 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   // 8. TRÌNH QUẢN LÝ HỌC PHÍ HỌC SINH (STUDENT TUITION BILLS) - ADMIN
   // Học phí = Số buổi trong tháng x Đơn giá 1 buổi. Học sinh nghỉ không được trừ tiền.
   // ==============================================================
-  const calculateClassTuitionBills = (classId: string, billingMonth: string) => {
-    const targetClass = classes.find((c) => c.id === classId);
-    if (!targetClass) return;
-
-    // Tính số buổi trong tháng dựa trên thời khóa biểu của lớp
+  const applyClassTuitionCalculation = (
+    targetClass: ClassItem,
+    billingMonth: string,
+    prevBills: StudentTuitionBill[]
+  ): StudentTuitionBill[] => {
+    const linkedCourse = courses.find((c) => c.id === targetClass.courseId);
     const { lessonCount } = calculateMonthLessons(billingMonth, targetClass.schedules);
     const actualLessonCount = lessonCount > 0 ? lessonCount : 8;
     const baseClassFeePerLesson =
       targetClass.feePerLesson ||
+      linkedCourse?.standardFeePerLesson ||
       (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
 
-    // Hạn nộp chuẩn: ngày 10 của tháng đó
     const match = billingMonth.match(/(\d{1,2})\/(\d{4})/);
     const monthStr = match ? match[1].padStart(2, "0") : "11";
     const yearStr = match ? match[2] : "2026";
     const dueDate = `10/${monthStr}/${yearStr}`;
 
-    const classStudents = students.filter((s) => s.classId === classId && s.learningStatus !== "DROPPED");
+    const classStudents = students.filter(
+      (s) => s.classId === targetClass.id && s.learningStatus !== "DROPPED"
+    );
 
-    setStudentTuitionBills((prev) => {
-      const updated = [...prev];
-      classStudents.forEach((stu) => {
-        const feePerLesson = stu.feePerLesson || baseClassFeePerLesson;
-        const calculatedAmount = actualLessonCount * feePerLesson;
-        const fixedDiscount = Math.max(0, stu.fixedDiscount || 0);
-        const fixedDiscountNote =
-          stu.fixedDiscountNote?.trim() ||
-          (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
+    const updated = [...prevBills];
+    classStudents.forEach((stu) => {
+      const feePerLesson =
+        stu.feePerLesson !== undefined && stu.feePerLesson > 0
+          ? stu.feePerLesson
+          : baseClassFeePerLesson;
+      const baseBreakdown = computeStudentTuitionBreakdown({
+        lessonCount: actualLessonCount,
+        feePerLesson,
+        discountPercent: stu.discountPercent,
+      });
+      const defaultDiscountNote =
+        stu.fixedDiscountNote?.trim() ||
+        (baseBreakdown.discountPercent > 0
+          ? `Giảm ${baseBreakdown.discountPercent}% học phí theo buổi`
+          : "");
 
-        const existingIndex = updated.findIndex(
-          (b) => b.studentId === stu.id && b.billingMonth === billingMonth
-        );
-        if (existingIndex >= 0) {
-          const existing = updated[existingIndex];
-          if (existing.status !== "PAID") {
-            const sur = existing.surcharge || 0;
-            const isManualCustomDiscount =
-              (existing.discount || 0) > 0 &&
-              Boolean(existing.discountNote) &&
-              !existing.discountNote?.includes("cố định") &&
-              existing.discountNote !== stu.fixedDiscountNote;
-            const disc = isManualCustomDiscount ? (existing.discount || 0) : fixedDiscount;
-            const discNote = isManualCustomDiscount ? existing.discountNote : fixedDiscountNote;
-            const adj = sur - disc;
-            updated[existingIndex] = {
-              ...existing,
-              studentName: stu.fullName,
-              parentName: stu.parentName,
-              parentPhone: stu.parentPhone,
-              lessonCount: actualLessonCount,
-              feePerLesson,
-              calculatedAmount,
-              surcharge: sur,
-              discount: disc,
-              discountNote: discNote,
-              adjustmentAmount: adj,
-              finalAmount: Math.max(0, calculatedAmount + adj),
-              dueDate,
-            };
-          } else {
-            updated[existingIndex] = {
-              ...existing,
-              studentName: stu.fullName,
-              parentName: stu.parentName,
-              parentPhone: stu.parentPhone,
-            };
-          }
-        } else {
-          const newBill: StudentTuitionBill = {
-            id: `bill-${monthStr}${yearStr}-${stu.id}`,
-            studentId: stu.id,
-            studentName: stu.fullName,
-            studentCode: stu.studentCode,
-            parentName: stu.parentName,
-            parentPhone: stu.parentPhone,
-            classId: targetClass.id,
-            className: targetClass.name,
-            billingMonth,
+      const existingIndex = updated.findIndex(
+        (b) => b.studentId === stu.id && b.billingMonth === billingMonth
+      );
+      if (existingIndex >= 0) {
+        const existing = updated[existingIndex];
+        if (existing.status !== "PAID") {
+          const sur = existing.surcharge || 0;
+          const isManualCustomDiscount =
+            (existing.discount || 0) > 0 &&
+            !(existing.discountPercent && existing.discountPercent > 0) &&
+            Boolean(existing.discountNote) &&
+            !existing.discountNote?.includes("cố định") &&
+            !existing.discountNote?.includes("%") &&
+            existing.discountNote !== stu.fixedDiscountNote;
+          const breakdown = computeStudentTuitionBreakdown({
             lessonCount: actualLessonCount,
             feePerLesson,
-            calculatedAmount,
-            surcharge: 0,
-            surchargeNote: "",
-            discount: fixedDiscount,
-            discountNote: fixedDiscountNote,
-            adjustmentAmount: -fixedDiscount,
-            finalAmount: Math.max(0, calculatedAmount - fixedDiscount),
-            status: "DRAFT",
+            discountPercent: isManualCustomDiscount ? 0 : stu.discountPercent,
+            surcharge: sur,
+          });
+          const disc = isManualCustomDiscount ? (existing.discount || 0) : breakdown.discount;
+          const adj = sur - disc;
+          const discNote = isManualCustomDiscount ? existing.discountNote : defaultDiscountNote;
+          updated[existingIndex] = {
+            ...existing,
+            classId: targetClass.id,
+            className: targetClass.name,
+            studentName: stu.fullName,
+            parentName: stu.parentName,
+            parentPhone: stu.parentPhone,
+            lessonCount: actualLessonCount,
+            feePerLesson,
+            calculatedAmount: breakdown.calculatedAmount,
+            surcharge: sur,
+            discountPercent: breakdown.discountPercent,
+            discount: disc,
+            discountNote: discNote,
+            adjustmentAmount: adj,
+            finalAmount: Math.max(0, breakdown.calculatedAmount + adj),
             dueDate,
-            reminderSentCount: 0,
-            policyNote: "Học sinh nghỉ học phí không được trừ theo quy định trung tâm",
           };
-          updated.push(newBill);
+        } else {
+          updated[existingIndex] = {
+            ...existing,
+            classId: targetClass.id,
+            className: targetClass.name,
+            studentName: stu.fullName,
+            parentName: stu.parentName,
+            parentPhone: stu.parentPhone,
+          };
         }
-      });
-      return updated;
+      } else {
+        const newBill: StudentTuitionBill = {
+          id: `bill-${monthStr}${yearStr}-${stu.id}`,
+          studentId: stu.id,
+          studentName: stu.fullName,
+          studentCode: stu.studentCode,
+          parentName: stu.parentName,
+          parentPhone: stu.parentPhone,
+          classId: targetClass.id,
+          className: targetClass.name,
+          billingMonth,
+          lessonCount: actualLessonCount,
+          feePerLesson,
+          calculatedAmount: baseBreakdown.calculatedAmount,
+          surcharge: 0,
+          surchargeNote: "",
+          discountPercent: baseBreakdown.discountPercent,
+          discount: baseBreakdown.discount,
+          discountNote: defaultDiscountNote,
+          adjustmentAmount: baseBreakdown.adjustmentAmount,
+          finalAmount: baseBreakdown.finalAmount,
+          status: "DRAFT",
+          dueDate,
+          reminderSentCount: 0,
+          policyNote: "Học sinh nghỉ học phí không được trừ theo quy định trung tâm",
+        };
+        updated.push(newBill);
+      }
     });
+    return updated;
+  };
+
+  const calculateClassTuitionBills = (classId: string, billingMonth: string) => {
+    const targetClass = classes.find((c) => c.id === classId);
+    if (!targetClass) return;
+    setStudentTuitionBills((prev) => applyClassTuitionCalculation(targetClass, billingMonth, prev));
   };
 
   const updateStudentTuitionBill = (billId: string, updates: Partial<StudentTuitionBill>) => {
     setStudentTuitionBills((prev) =>
       prev.map((bill) => {
         if (bill.id !== billId) return bill;
-        const newLessonCount = updates.lessonCount !== undefined ? updates.lessonCount : bill.lessonCount;
-        const newFeePerLesson = updates.feePerLesson !== undefined ? updates.feePerLesson : bill.feePerLesson;
-        const surcharge = updates.surcharge !== undefined ? Math.max(0, updates.surcharge) : (bill.surcharge || 0);
-        const discount = updates.discount !== undefined ? Math.max(0, updates.discount) : (bill.discount || 0);
-        const newAdjustment = updates.adjustmentAmount !== undefined
-          ? updates.adjustmentAmount
-          : (surcharge - discount);
-        const calculatedAmount = newLessonCount * newFeePerLesson;
-        const finalAmount = updates.finalAmount !== undefined
-          ? updates.finalAmount
-          : (calculatedAmount + surcharge - discount);
+        const newLessonCount =
+          updates.lessonCount !== undefined ? Math.max(0, updates.lessonCount) : bill.lessonCount;
+        const newFeePerLesson =
+          updates.feePerLesson !== undefined ? Math.max(0, updates.feePerLesson) : bill.feePerLesson;
+        const surcharge =
+          updates.surcharge !== undefined ? Math.max(0, updates.surcharge) : (bill.surcharge || 0);
+        const calculatedAmount = Math.round(newLessonCount * newFeePerLesson);
+
+        let nextDiscountPercent =
+          updates.discountPercent !== undefined
+            ? Math.min(100, Math.max(0, updates.discountPercent))
+            : (bill.discountPercent || 0);
+        let discount = bill.discount || 0;
+        if (updates.discountPercent !== undefined) {
+          discount =
+            nextDiscountPercent > 0 ? Math.round((calculatedAmount * nextDiscountPercent) / 100) : 0;
+        } else if (updates.discount !== undefined) {
+          discount = Math.max(0, updates.discount);
+          if (updates.discount === 0) nextDiscountPercent = 0;
+        } else if (
+          nextDiscountPercent > 0 &&
+          (updates.lessonCount !== undefined || updates.feePerLesson !== undefined)
+        ) {
+          discount = Math.round((calculatedAmount * nextDiscountPercent) / 100);
+        }
+
+        const newAdjustment =
+          updates.adjustmentAmount !== undefined ? updates.adjustmentAmount : surcharge - discount;
+        const finalAmount =
+          updates.finalAmount !== undefined
+            ? Math.max(0, updates.finalAmount)
+            : Math.max(0, calculatedAmount + surcharge - discount);
 
         return {
           ...bill,
@@ -1907,7 +2491,9 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           feePerLesson: newFeePerLesson,
           calculatedAmount,
           surcharge,
-          surchargeNote: updates.surchargeNote !== undefined ? updates.surchargeNote : bill.surchargeNote,
+          surchargeNote:
+            updates.surchargeNote !== undefined ? updates.surchargeNote : bill.surchargeNote,
+          discountPercent: nextDiscountPercent,
           discount,
           discountNote: updates.discountNote !== undefined ? updates.discountNote : bill.discountNote,
           adjustmentAmount: newAdjustment,
@@ -1946,7 +2532,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       );
       addZaloMessageLog({
         senderRole: "ADMIN",
-        senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+        senderName: "Shiny English (Hotline Trung Tâm)",
         senderPhone: "0964645174",
         senderAccountType: "CENTER_HOTLINE",
         recipientName: recipientName,
@@ -1961,7 +2547,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
       // Tự động gửi tin Zalo tới phụ huynh (không cần Ctrl+V)
       if (recipientPhone) {
-        sendDirectAutoZaloMessage(recipientPhone, msg, "Ms. Dung Shiny (Hotline Trung Tâm)", false);
+        sendDirectAutoZaloMessage(recipientPhone, msg, "Shiny English (Hotline Trung Tâm)", false);
       }
 
       setStudents((prev) =>
@@ -1989,7 +2575,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           const msg = generateTuitionZaloMessage(bill, bill.studentName, bill.parentName, bill.className);
           addZaloMessageLog({
             senderRole: "ADMIN",
-            senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+            senderName: "Shiny English (Hotline Trung Tâm)",
             senderPhone: "0964645174",
             senderAccountType: "CENTER_HOTLINE",
             recipientName: bill.parentName,
@@ -2150,7 +2736,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       );
       addZaloMessageLog({
         senderRole: "ADMIN",
-        senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+        senderName: "Shiny English (Hotline Trung Tâm)",
         senderPhone: "0964645174",
         senderAccountType: "CENTER_HOTLINE",
         recipientName: recipientName,
@@ -2165,7 +2751,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
       // Tự động gửi tin nhắc nhở Zalo (không cần Ctrl+V)
       if (recipientPhone) {
-        sendDirectAutoZaloMessage(recipientPhone, msg, "Ms. Dung Shiny (Hotline Trung Tâm)", false);
+        sendDirectAutoZaloMessage(recipientPhone, msg, "Shiny English (Hotline Trung Tâm)", false);
       }
     }
 
@@ -2196,7 +2782,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         );
         addZaloMessageLog({
           senderRole: "ADMIN",
-          senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+          senderName: "Shiny English (Hotline Trung Tâm)",
           senderPhone: "0964645174",
           senderAccountType: "CENTER_HOTLINE",
           recipientName: targetBill.parentName,
@@ -2291,8 +2877,12 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
   };
 
   const autoTriggerMonthlyTuition = (billingMonth: string) => {
-    classes.forEach((cls) => {
-      calculateClassTuitionBills(cls.id, billingMonth);
+    setStudentTuitionBills((prev) => {
+      let nextBills = [...prev];
+      classes.forEach((cls) => {
+        nextBills = applyClassTuitionCalculation(cls, billingMonth, nextBills);
+      });
+      return nextBills;
     });
   };
 
@@ -2308,9 +2898,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     const staffId = mc.teacherOrAssistantId;
     const monthStr = mc.monthStr;
     const targetStaff = staff.find((s) => s.id === staffId);
-    const hourlyRate = targetStaff?.hourlyRate || (mc.roleInCharge === "TEACHER" ? 250000 : 120000);
+    const staffHourlyRate = targetStaff?.hourlyRate || (mc.roleInCharge === "TEACHER" ? 250000 : 100000);
     const duration = mc.durationHours || 1.5;
-    const sessionAmount = duration * hourlyRate;
 
     const workLog: SessionWorkLog = {
       id: logId,
@@ -2320,8 +2909,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       startTime: mc.startTime,
       endTime: mc.endTime,
       durationHours: duration,
-      ratePerHour: hourlyRate,
-      amount: sessionAmount,
+      ratePerHour: MAKEUP_SESSION_FIXED_PAY,
+      amount: MAKEUP_SESSION_FIXED_PAY,
       type: "MAKEUP",
     };
 
@@ -2330,15 +2919,20 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       const cleaned = prev.map((t) => {
         if (!t.sessionLogs?.some((l) => l.id === logId)) return t;
         const updatedLogs = t.sessionLogs.filter((l) => l.id !== logId);
-        const newTotalHours = updatedLogs.reduce((sum, l) => sum + (l.durationHours || 0), 0);
-        const newBaseSalary = newTotalHours * t.hourlyRate;
         const otherAdj = t.otherAdjustment ?? t.deduction ?? 0;
+        const metrics = calculateTimesheetMetrics(
+          updatedLogs,
+          t.hourlyRate,
+          t.allowance,
+          t.bonus,
+          otherAdj
+        );
         return {
           ...t,
-          totalHours: newTotalHours,
-          totalSessions: updatedLogs.length,
-          baseSalary: newBaseSalary,
-          totalNetSalary: newBaseSalary + t.allowance + t.bonus + otherAdj,
+          totalHours: metrics.totalHours,
+          totalSessions: metrics.totalSessions,
+          baseSalary: metrics.baseSalary,
+          totalNetSalary: metrics.totalNetSalary,
           sessionLogs: updatedLogs,
         };
       });
@@ -2347,21 +2941,26 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         return cleaned;
       }
 
-      // 2. Thêm ca bù vào bảng công của nhân sự tương ứng trong tháng
+      // 2. Thêm ca bù vào bảng công của nhân sự tương ứng trong tháng (120.000đ/ca cố định)
       const existing = cleaned.find((t) => t.staffId === staffId && t.monthStr === monthStr);
       if (existing) {
         const updatedLogs = [...(existing.sessionLogs || []), workLog];
-        const newTotalHours = updatedLogs.reduce((sum, l) => sum + (l.durationHours || 0), 0);
-        const newBaseSalary = newTotalHours * existing.hourlyRate;
         const otherAdj = existing.otherAdjustment ?? existing.deduction ?? 0;
+        const metrics = calculateTimesheetMetrics(
+          updatedLogs,
+          existing.hourlyRate,
+          existing.allowance,
+          existing.bonus,
+          otherAdj
+        );
         return cleaned.map((t) =>
           t.id === existing.id
             ? {
                 ...t,
-                totalHours: newTotalHours,
-                totalSessions: updatedLogs.length,
-                baseSalary: newBaseSalary,
-                totalNetSalary: newBaseSalary + existing.allowance + existing.bonus + otherAdj,
+                totalHours: metrics.totalHours,
+                totalSessions: metrics.totalSessions,
+                baseSalary: metrics.baseSalary,
+                totalNetSalary: metrics.totalNetSalary,
                 sessionLogs: updatedLogs,
               }
             : t
@@ -2373,15 +2972,15 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           staffName: targetStaff?.fullName || mc.teacherOrAssistantName,
           role: targetStaff?.role || mc.roleInCharge,
           monthStr: monthStr,
-          hourlyRate,
+          hourlyRate: staffHourlyRate,
           totalHours: duration,
           totalSessions: 1,
-          baseSalary: sessionAmount,
+          baseSalary: MAKEUP_SESSION_FIXED_PAY,
           allowance: 0,
           bonus: 0,
           deduction: 0,
           otherAdjustment: 0,
-          totalNetSalary: sessionAmount,
+          totalNetSalary: MAKEUP_SESSION_FIXED_PAY,
           status: "DRAFT",
           sessionLogs: [workLog],
         };
@@ -2533,7 +3132,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
               );
               addZaloMessageLog({
                 senderRole: "ADMIN",
-                senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+                senderName: "Shiny English (Hotline Trung Tâm)",
                 senderPhone: "0964645174",
                 senderAccountType: "CENTER_HOTLINE",
                 recipientName: studentObj.parentName,
@@ -2583,7 +3182,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         );
         addZaloMessageLog({
           senderRole: "ADMIN",
-          senderName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+          senderName: "Shiny English (Hotline Trung Tâm)",
           senderPhone: "0964645174",
           senderAccountType: "CENTER_HOTLINE",
           recipientName: studentObj.parentName,
@@ -2712,9 +3311,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     }
 
     const targetStaff = staff.find((s) => s.id === mc.teacherOrAssistantId);
-    const hourlyRate = targetStaff?.hourlyRate || (mc.roleInCharge === "TEACHER" ? 250000 : 120000);
+    const staffHourlyRate = targetStaff?.hourlyRate || (mc.roleInCharge === "TEACHER" ? 250000 : 100000);
     const duration = mc.durationHours || 1.5;
-    const sessionAmount = duration * hourlyRate;
 
     const newLog: SessionWorkLog = {
       id: `log-makeup-${mc.id}`,
@@ -2724,8 +3322,8 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       startTime: mc.startTime,
       endTime: mc.endTime,
       durationHours: duration,
-      ratePerHour: hourlyRate,
-      amount: sessionAmount,
+      ratePerHour: MAKEUP_SESSION_FIXED_PAY,
+      amount: MAKEUP_SESSION_FIXED_PAY,
       type: "MAKEUP",
     };
 
@@ -2737,18 +3335,22 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         const alreadyHas = existing.sessionLogs?.some((l) => l.id === newLog.id);
         if (alreadyHas) return prev;
         const updatedLogs = [...(existing.sessionLogs || []), newLog];
-        const newTotalHours = updatedLogs.reduce((sum, l) => sum + (l.durationHours || 0), 0);
-        const newBaseSalary = newTotalHours * existing.hourlyRate;
         const otherAdj = existing.otherAdjustment ?? existing.deduction ?? 0;
-        const newTotalNet = newBaseSalary + existing.allowance + existing.bonus + otherAdj;
+        const metrics = calculateTimesheetMetrics(
+          updatedLogs,
+          existing.hourlyRate,
+          existing.allowance,
+          existing.bonus,
+          otherAdj
+        );
         return prev.map((t) =>
           t.id === existing.id
             ? {
                 ...t,
-                totalHours: newTotalHours,
-                totalSessions: updatedLogs.length,
-                baseSalary: newBaseSalary,
-                totalNetSalary: newTotalNet,
+                totalHours: metrics.totalHours,
+                totalSessions: metrics.totalSessions,
+                baseSalary: metrics.baseSalary,
+                totalNetSalary: metrics.totalNetSalary,
                 sessionLogs: updatedLogs,
               }
             : t
@@ -2760,15 +3362,15 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
           staffName: mc.teacherOrAssistantName,
           role: mc.roleInCharge,
           monthStr: mc.monthStr,
-          hourlyRate,
+          hourlyRate: staffHourlyRate,
           totalHours: duration,
           totalSessions: 1,
-          baseSalary: sessionAmount,
+          baseSalary: MAKEUP_SESSION_FIXED_PAY,
           allowance: 0,
           bonus: 0,
           deduction: 0,
           otherAdjustment: 0,
-          totalNetSalary: sessionAmount,
+          totalNetSalary: MAKEUP_SESSION_FIXED_PAY,
           status: "DRAFT",
           sessionLogs: [newLog],
         };
@@ -2786,7 +3388,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
     return {
       success: true,
-      message: `Đã tính lương ca dạy bù cho ${mc.teacherOrAssistantName} (${duration}h x ${hourlyRate.toLocaleString("vi-VN")}đ = ${sessionAmount.toLocaleString("vi-VN")}đ)!`,
+      message: `Đã tính lương ca dạy bù cho ${mc.teacherOrAssistantName} (Mức cố định ${MAKEUP_SESSION_FIXED_PAY.toLocaleString("vi-VN")}đ/ca)!`,
     };
   };
 
@@ -2894,7 +3496,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         role,
         staffId,
         accountType: role === "ADMIN" ? "CENTER_HOTLINE" : "PERSONAL",
-        accountName: accountName || (role === "ADMIN" ? "Ms. Dung Shiny Hotline Trung Tâm" : "Zalo Cá Nhân"),
+        accountName: accountName || (role === "ADMIN" ? "Shiny English Hotline Trung Tâm" : "Zalo Cá Nhân"),
         phoneNumber: phoneNumber || (role === "ADMIN" ? "0964645174" : "0901234567"),
         isConnected: true,
         connectedAt: new Date().toISOString(),
@@ -2908,7 +3510,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       [role]: {
         role,
-        accountName: accountName || (role === "ADMIN" ? "Ms. Dung Shiny Hotline Trung Tâm" : "Zalo Cá Nhân"),
+        accountName: accountName || (role === "ADMIN" ? "Shiny English Hotline Trung Tâm" : "Zalo Cá Nhân"),
         phoneNumber: phoneNumber || (role === "ADMIN" ? "0964645174" : "0901234567"),
         sessionToken: generatedSessionId,
         sessionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -3082,7 +3684,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       const adminAccForOa = userAccounts.find((a) => a.role === "ADMIN");
       addZaloMessageLog({
         senderRole: "ADMIN",
-        senderName: zaloOAConfig.oaName || `${adminAccForOa?.name || "Ms. Dung Shiny"} (Zalo OA)`,
+        senderName: zaloOAConfig.oaName || `${adminAccForOa?.name || "Shiny English"} (Zalo OA)`,
         senderPhone: adminAccForOa?.phone || "0964645174",
         senderAccountType: "CENTER_HOTLINE",
         recipientName: params.recipientName,
@@ -3665,9 +4267,18 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 5. Đăng nhập thành công
+    // 5. Đăng nhập thành công (Đồng bộ staffId chuẩn nếu thiếu)
+    let resolvedStaffId = targetAcc.staffId;
+    if ((targetAcc.role === "TEACHER" || targetAcc.role === "ASSISTANT") && !resolvedStaffId) {
+      const matchedStaff = staff.find(
+        (s) => normalizePhoneNumber(s.phone) === cleanInputPhone && s.role === targetAcc.role
+      );
+      if (matchedStaff) resolvedStaffId = matchedStaff.id;
+    }
+
     const updatedAcc: UserAccount = {
       ...targetAcc,
+      ...(resolvedStaffId ? { staffId: resolvedStaffId } : {}),
       lastLoginAt: new Date().toISOString(),
     };
     setUserAccounts((prev) => prev.map((a) => (a.id === updatedAcc.id ? updatedAcc : a)));
@@ -3992,6 +4603,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         confirmStaffTimesheet,
         updateStaffTimesheet,
         recalculateStaffTimesheetHours,
+        syncMonthlyTimesheets,
         sendTimesheetToStaff,
         markTimesheetPaid,
         markTimesheetUnpaid,

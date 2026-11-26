@@ -8,6 +8,7 @@ import {
   formatVND, 
   getStudentDebtSummary, 
   generateTuitionReminderMessage,
+  computeStudentTuitionBreakdown,
   StudentDebtSummary 
 } from "@/utils/tuitionHelper";
 import {
@@ -46,7 +47,7 @@ import {
 import ZaloBatchQueueModal, { ZaloQueueItem } from "@/components/common/ZaloBatchQueueModal";
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 import { generateTuitionReminderZaloMessage, generateTuitionZaloMessage } from "@/utils/zaloHelper";
-import { getCurrentBillingMonth } from "@/utils/dateHelper";
+import { getCurrentBillingMonth, getBillingMonthOptions } from "@/utils/dateHelper";
 
 export default function TuitionManager() {
   const {
@@ -92,6 +93,7 @@ export default function TuitionManager() {
   const [editFeePerLesson, setEditFeePerLesson] = useState<number>(200000);
   const [editSurcharge, setEditSurcharge] = useState<number>(0);
   const [editSurchargeNote, setEditSurchargeNote] = useState<string>("");
+  const [editDiscountPercent, setEditDiscountPercent] = useState<number>(0);
   const [editDiscount, setEditDiscount] = useState<number>(0);
   const [editDiscountNote, setEditDiscountNote] = useState<string>("");
   const [editStatus, setEditStatus] = useState<TuitionBillStatus>("SENT");
@@ -244,22 +246,26 @@ export default function TuitionManager() {
     setEditLessons(bill.lessonCount);
     setEditFeePerLesson(bill.feePerLesson);
     const sur = bill.surcharge !== undefined ? bill.surcharge : (bill.adjustmentAmount > 0 ? bill.adjustmentAmount : 0);
+    const discPct = bill.discountPercent ?? 0;
     const disc = bill.discount !== undefined ? bill.discount : (bill.adjustmentAmount < 0 ? Math.abs(bill.adjustmentAmount) : 0);
     setEditSurcharge(sur);
     setEditSurchargeNote(bill.surchargeNote || (bill.adjustmentAmount > 0 ? (bill.notes || "") : ""));
+    setEditDiscountPercent(discPct);
     setEditDiscount(disc);
     setEditDiscountNote(bill.discountNote || (bill.adjustmentAmount < 0 ? (bill.notes || "") : ""));
     setEditStatus(bill.status);
   };
 
-  // Lưu chỉnh sửa học phí (công thức: Học phí = Số buổi × Đơn giá + Phụ thu - Giảm trừ)
+  // Lưu chỉnh sửa học phí (công thức: Học phí = Số buổi × Đơn giá × (1 - %/100) + Phụ thu)
   const handleSaveEdit = () => {
     if (!editingBill) return;
     const safeSurcharge = Math.max(0, editSurcharge || 0);
-    const safeDiscount = Math.max(0, editDiscount || 0);
+    const safePct = Math.min(100, Math.max(0, editDiscountPercent || 0));
     const calculatedAmount = editLessons * editFeePerLesson;
+    const safeDiscount =
+      safePct > 0 ? Math.round((calculatedAmount * safePct) / 100) : Math.max(0, editDiscount || 0);
     const adjustmentAmount = safeSurcharge - safeDiscount;
-    const finalAmount = calculatedAmount + safeSurcharge - safeDiscount;
+    const finalAmount = Math.max(0, calculatedAmount + safeSurcharge - safeDiscount);
 
     // Xử lý đổi trạng thái đóng tiền nếu Admin có thay đổi
     if (editStatus !== editingBill.status) {
@@ -276,6 +282,7 @@ export default function TuitionManager() {
       calculatedAmount,
       surcharge: safeSurcharge,
       surchargeNote: editSurchargeNote.trim(),
+      discountPercent: safePct,
       discount: safeDiscount,
       discountNote: editDiscountNote.trim(),
       adjustmentAmount,
@@ -283,7 +290,7 @@ export default function TuitionManager() {
       status: editStatus,
       notes: [
         safeSurcharge > 0 ? `Phụ thu: ${editSurchargeNote || "Phụ phí"}` : "",
-        safeDiscount > 0 ? `Giảm trừ: ${editDiscountNote || "Học bổng/Ưu đãi"}` : "",
+        safeDiscount > 0 ? `Giảm trừ: ${editDiscountNote || (safePct > 0 ? `Giảm ${safePct}%/buổi` : "Học bổng/Ưu đãi")}` : "",
       ].filter(Boolean).join(" | "),
     });
 
@@ -291,32 +298,38 @@ export default function TuitionManager() {
     setEditingBill(null);
   };
 
-  // Khôi phục tự động tính theo lịch của lớp (giữ giảm trừ cố định nếu có)
+  // Khôi phục tự động tính theo lịch của lớp (giữ % giảm trừ của học sinh nếu có)
   const handleRecalculateSingle = () => {
     if (!editingBill) return;
-    const targetClass = classes.find((c) => c.id === editingBill.classId);
+    const studentObj = students.find((s) => s.id === editingBill.studentId);
+    const targetClass = classes.find((c) => c.id === (studentObj?.classId || editingBill.classId));
     if (!targetClass) return;
 
-    const studentObj = students.find((s) => s.id === editingBill.studentId);
     const { lessonCount } = calculateMonthLessons(selectedMonth, targetClass.schedules);
     const actualLessons = lessonCount > 0 ? lessonCount : 8;
     const fee =
-      studentObj?.feePerLesson ||
-      targetClass.feePerLesson ||
+      (studentObj?.feePerLesson && studentObj.feePerLesson > 1
+        ? studentObj.feePerLesson
+        : targetClass.feePerLesson) ||
       (targetClass.monthlyFee ? Math.round(targetClass.monthlyFee / 8) : 200000);
-    const fixedDisc = Math.max(0, studentObj?.fixedDiscount || 0);
-    const fixedDiscNote =
+    const breakdown = computeStudentTuitionBreakdown({
+      lessonCount: actualLessons,
+      feePerLesson: fee,
+      discountPercent: studentObj?.discountPercent,
+    });
+    const discNote =
       studentObj?.fixedDiscountNote?.trim() ||
-      (fixedDisc > 0 ? "Giảm trừ học phí cố định hàng tháng" : "");
+      (breakdown.discountPercent > 0 ? `Giảm ${breakdown.discountPercent}% học phí theo buổi` : "");
 
     setEditLessons(actualLessons);
     setEditFeePerLesson(fee);
     setEditSurcharge(0);
     setEditSurchargeNote("");
-    setEditDiscount(fixedDisc);
-    setEditDiscountNote(fixedDiscNote);
+    setEditDiscountPercent(breakdown.discountPercent);
+    setEditDiscount(breakdown.discount);
+    setEditDiscountNote(discNote);
     showToast(
-      `🔄 Đã khôi phục số buổi theo lịch chuẩn (${actualLessons} buổi × ${formatVND(fee)}${fixedDisc > 0 ? ` - ${formatVND(fixedDisc)} giảm cố định` : ""})!`
+      `🔄 Đã khôi phục chuẩn (${actualLessons} buổi × ${formatVND(fee)}${breakdown.discountPercent > 0 ? ` - ${breakdown.discountPercent}%/buổi` : breakdown.discount > 0 ? ` - ${formatVND(breakdown.discount)}` : ""})!`
     );
   };
 
@@ -658,7 +671,9 @@ export default function TuitionManager() {
   // Cài cảnh báo ngày 01 đầu tháng
   const handleTriggerMonthStartWarning = () => {
     autoTriggerMonthlyTuition(selectedMonth);
-    showToast(`🔔 Đã kích hoạt cảnh báo đóng học phí ngày 01 đầu tháng (Kỳ ${selectedMonth} - Hạn chót 10/11)!`);
+    const match = selectedMonth.match(/(\d{1,2})\/(\d{4})/);
+    const dueLabel = match ? `10/${match[1].padStart(2, "0")}/${match[2]}` : "ngày 10";
+    showToast(`🔔 Đã kích hoạt cảnh báo đóng học phí ngày 01 đầu tháng (Kỳ ${selectedMonth} - Hạn chót ${dueLabel})!`);
   };
 
   // Gửi nhắc nhở đóng học phí đơn lẻ (Mở modal chỉnh sửa trước khi gửi)
@@ -727,7 +742,7 @@ export default function TuitionManager() {
             <button
               onClick={handleTriggerMonthStartWarning}
               className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5"
-              title="Kích hoạt ngày 01 đầu tháng: Quét học phí và cài đặt cảnh báo hạn nộp 10/11"
+              title="Kích hoạt ngày 01 đầu tháng: Quét học phí và cài đặt cảnh báo hạn nộp ngày 10"
             >
               <Bell className="w-4 h-4 text-amber-300" />
               <span>Cài Cảnh Báo Ngày 01</span>
@@ -850,9 +865,11 @@ export default function TuitionManager() {
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="px-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 font-bold text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
-              <option value="Tháng 11/2026">Tháng 11/2026 (Hiện tại - Thu đầu tháng)</option>
-              <option value="Tháng 12/2026">Tháng 12/2026 (Kỳ tiếp theo)</option>
-              <option value="Tháng 10/2026">Tháng 10/2026 (Lịch sử đã thu)</option>
+              {getBillingMonthOptions().map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -1137,6 +1154,11 @@ export default function TuitionManager() {
                             <span className="font-mono font-bold text-rose-700">
                               -{formatVND(bill.discount || Math.abs(bill.adjustmentAmount))}
                             </span>
+                            {(bill.discountPercent || 0) > 0 && (
+                              <span className="text-[10px] font-bold text-emerald-700 block">
+                                (-{bill.discountPercent}%/buổi)
+                              </span>
+                            )}
                             {(bill.discountNote || (bill.adjustmentAmount < 0 && bill.notes)) && (
                               <span className="text-[10px] text-rose-800 block truncate max-w-[110px] ml-auto font-medium" title={bill.discountNote || bill.notes}>
                                 {bill.discountNote || bill.notes}
@@ -1870,7 +1892,7 @@ export default function TuitionManager() {
               {/* Header phiếu thu */}
               <div className="text-center border-b border-slate-300 pb-4 space-y-1">
                 <span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-700">
-                  HỆ THỐNG ANH NGỮ MS. DUNG SHINY
+                  HỆ THỐNG ANH NGỮ SHINY ENGLISH
                 </span>
                 <h3 className="text-xl font-black text-slate-950 uppercase">
                   BIÊN LAI THU HỌC PHÍ THÁNG
@@ -1970,7 +1992,7 @@ export default function TuitionManager() {
                       ✓ ĐÃ THU ĐỦ TIỀN
                     </span>
                   </div>
-                  <span className="font-semibold text-slate-700">Ms. Dung Shiny Center</span>
+                  <span className="font-semibold text-slate-700">Shiny English Center</span>
                 </div>
               </div>
             </div>
@@ -2184,7 +2206,28 @@ export default function TuitionManager() {
                     Trừ khỏi học phí (-)
                   </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10.5px] text-slate-600 block mb-0.5 font-medium">% Giảm / buổi (%):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={editDiscountPercent || ""}
+                      onChange={(e) => {
+                        const pct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                        setEditDiscountPercent(pct);
+                        const calc = (editLessons || 0) * (editFeePerLesson || 0);
+                        setEditDiscount(pct > 0 ? Math.round((calc * pct) / 100) : 0);
+                        if (pct > 0 && (!editDiscountNote || editDiscountNote.startsWith("Giảm "))) {
+                          setEditDiscountNote(`Giảm ${pct}% học phí theo buổi`);
+                        }
+                      }}
+                      placeholder="0"
+                      className="w-full px-3 py-1.5 rounded-xl border border-emerald-300 bg-white font-mono font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
                   <div>
                     <label className="text-[10.5px] text-slate-600 block mb-0.5 font-medium">Số tiền giảm trừ (-):</label>
                     <input
@@ -2192,7 +2235,11 @@ export default function TuitionManager() {
                       min="0"
                       step="any"
                       value={editDiscount || ""}
-                      onChange={(e) => setEditDiscount(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                        setEditDiscountPercent(0);
+                        setEditDiscount(val);
+                      }}
                       placeholder="0"
                       className="w-full px-3 py-1.5 rounded-xl border border-rose-300 bg-white font-mono font-bold text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
                     />
@@ -2203,7 +2250,7 @@ export default function TuitionManager() {
                       type="text"
                       value={editDiscountNote}
                       onChange={(e) => setEditDiscountNote(e.target.value)}
-                      placeholder="VD: Tặng 10% học bổng, Ưu đãi 2 con..."
+                      placeholder="VD: Tặng 10% học bổng..."
                       className="w-full px-3 py-1.5 rounded-xl border border-rose-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
                     />
                   </div>

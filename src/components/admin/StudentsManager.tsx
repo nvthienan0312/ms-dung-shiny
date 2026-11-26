@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { normalizePhoneNumber } from "@/utils/authHelper";
 import { cleanPhoneNumber } from "@/utils/zaloHelper";
-import { getTodayDateString } from "@/utils/dateHelper";
+import { getTodayDateString, getCurrentBillingMonth, getDefaultTuitionDueDate } from "@/utils/dateHelper";
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 
 export default function StudentsManager() {
@@ -86,11 +86,11 @@ export default function StudentsManager() {
     note: "",
     classId: classes[0]?.id || "",
     feePerLesson: classes[0]?.feePerLesson || (classes[0]?.monthlyFee ? Math.round(classes[0].monthlyFee / 8) : 200000),
-    fixedDiscount: 0,
+    discountPercent: 0,
     fixedDiscountNote: "",
     tuitionStatus: "PAID" as "PAID" | "UNPAID" | "OVERDUE",
-    currentBillingMonth: "Tháng 11/2026",
-    tuitionDueDate: "10/11/2026",
+    currentBillingMonth: getCurrentBillingMonth(),
+    tuitionDueDate: getDefaultTuitionDueDate(),
   });
 
   const studyingStudentsCount = students.filter((s) => s.learningStatus !== "DROPPED").length;
@@ -141,11 +141,11 @@ export default function StudentsManager() {
       note: "",
       classId: defaultClass?.id || "",
       feePerLesson: defaultClass?.feePerLesson || (defaultClass?.monthlyFee ? Math.round(defaultClass.monthlyFee / 8) : 200000),
-      fixedDiscount: 0,
+      discountPercent: 0,
       fixedDiscountNote: "",
       tuitionStatus: "PAID",
-      currentBillingMonth: "Tháng 11/2026",
-      tuitionDueDate: "10/11/2026",
+      currentBillingMonth: getCurrentBillingMonth(),
+      tuitionDueDate: getDefaultTuitionDueDate(),
     });
     setIsModalOpen(true);
   };
@@ -166,11 +166,11 @@ export default function StudentsManager() {
       note: stu.note || "",
       classId: stu.classId || "",
       feePerLesson: resolvedFeePerLesson,
-      fixedDiscount: stu.fixedDiscount || 0,
+      discountPercent: stu.discountPercent || 0,
       fixedDiscountNote: stu.fixedDiscountNote || "",
       tuitionStatus: stu.tuitionStatus || "PAID",
-      currentBillingMonth: stu.currentBillingMonth || "Tháng 11/2026",
-      tuitionDueDate: stu.tuitionDueDate || "10/11/2026",
+      currentBillingMonth: stu.currentBillingMonth || getCurrentBillingMonth(),
+      tuitionDueDate: stu.tuitionDueDate || getDefaultTuitionDueDate(stu.currentBillingMonth),
     });
     setIsModalOpen(true);
   };
@@ -181,7 +181,7 @@ export default function StudentsManager() {
 
     const selectedCls = classes.find((c) => c.id === formData.classId);
     const feePerLesson = Math.max(0, Number(formData.feePerLesson) || 0);
-    const fixedDiscount = Math.max(0, Number(formData.fixedDiscount) || 0);
+    const discountPercent = Math.min(100, Math.max(0, Number(formData.discountPercent) || 0));
     const noteTrimmed = formData.note.trim();
     const fixedDiscountNoteTrimmed = formData.fixedDiscountNote.trim();
 
@@ -197,8 +197,8 @@ export default function StudentsManager() {
         className: selectedCls ? selectedCls.name : undefined,
         feePerLesson,
         monthlyFee: feePerLesson * 8,
-        fixedDiscount,
-        fixedDiscountNote: fixedDiscountNoteTrimmed || (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : undefined),
+        discountPercent,
+        fixedDiscountNote: fixedDiscountNoteTrimmed || (discountPercent > 0 ? `Giảm ${discountPercent}% học phí theo buổi` : undefined),
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -217,8 +217,8 @@ export default function StudentsManager() {
         className: selectedCls ? selectedCls.name : undefined,
         feePerLesson,
         monthlyFee: feePerLesson * 8,
-        fixedDiscount,
-        fixedDiscountNote: fixedDiscountNoteTrimmed || (fixedDiscount > 0 ? "Giảm trừ học phí cố định hàng tháng" : undefined),
+        discountPercent,
+        fixedDiscountNote: fixedDiscountNoteTrimmed || (discountPercent > 0 ? `Giảm ${discountPercent}% học phí theo buổi` : undefined),
         tuitionStatus: formData.tuitionStatus,
         currentBillingMonth: formData.currentBillingMonth,
         tuitionDueDate: formData.tuitionDueDate,
@@ -234,7 +234,7 @@ export default function StudentsManager() {
   const handleOpenZaloChat = (stu: StudentItem) => {
     const parentName = stu.parentName || "Phụ huynh";
     const initialMsg = `Kính gửi Ba Mẹ bé ${stu.fullName} (${parentName}),
-Trung tâm tiếng Anh Ms. Dung Shiny xin gửi lời chào trân trọng!
+Trung tâm tiếng Anh Shiny English xin gửi lời chào trân trọng!
 Cô Dung liên hệ để trao đổi với Ba Mẹ về tình hình học tập và lộ trình của con tại lớp ${stu.className || "của trung tâm"}.
 
 Nếu Ba Mẹ có bất kỳ câu hỏi hoặc cần hỗ trợ thêm thông tin gì, Ba Mẹ cứ nhắn tin lại cho cô nhé ạ!
@@ -246,7 +246,7 @@ Trân trọng cảm ơn Ba Mẹ!`;
       studentName: stu.fullName,
       parentName,
       parentPhone: stu.parentPhone,
-      className: stu.className || "Ms. Dung Shiny",
+      className: stu.className || "Shiny English",
       title: `Nhắn Tin Zalo: PH bé ${stu.fullName} (${stu.parentPhone})`,
       initialContent: initialMsg,
       templateBadge: "Trao Đổi Trực Tiếp",
@@ -550,14 +550,22 @@ Trân trọng cảm ơn Ba Mẹ!`;
                             ? "text-rose-700 bg-rose-50 border-rose-200"
                             : "text-amber-700 bg-amber-50 border-amber-200"
                         }`}>
-                          {stu.tuitionStatus === "PAID" ? "✓ Đã đóng T11" : stu.tuitionStatus === "OVERDUE" ? "Quá hạn T11" : "Chưa đóng T11"}
+                        {(() => {
+                          const mMatch = stu.currentBillingMonth?.match(/(\d{1,2})\/(\d{4})/);
+                          const shortM = mMatch ? `T${parseInt(mMatch[1], 10)}` : `T${new Date().getMonth() + 1}`;
+                          return stu.tuitionStatus === "PAID"
+                            ? `✓ Đã đóng ${shortM}`
+                            : stu.tuitionStatus === "OVERDUE"
+                            ? `Quá hạn ${shortM}`
+                            : `Chưa đóng ${shortM}`;
+                        })()}
                         </span>
                         <div className="text-[10.5px] text-slate-500 font-mono">
                           {(stu.feePerLesson || (stu.monthlyFee ? Math.round(stu.monthlyFee / 8) : 200000)).toLocaleString("vi-VN")} đ/buổi
                         </div>
-                        {(stu.fixedDiscount || 0) > 0 && (
-                          <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded inline-block" title={stu.fixedDiscountNote || "Giảm trừ học phí cố định hàng tháng"}>
-                            Giảm cố định: -{(stu.fixedDiscount || 0).toLocaleString("vi-VN")} đ/tháng
+                        {(stu.discountPercent || 0) > 0 && (
+                          <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded inline-block" title={stu.fixedDiscountNote || `Giảm ${stu.discountPercent}% học phí theo buổi`}>
+                            Giảm -{stu.discountPercent}%/buổi ({Math.round(((stu.feePerLesson || 200000) * (1 - (stu.discountPercent || 0) / 100))).toLocaleString("vi-VN")}đ/buổi)
                           </div>
                         )}
                       </div>
@@ -865,26 +873,32 @@ Trân trọng cảm ơn Ba Mẹ!`;
                 </div>
               </div>
 
-              {/* Giảm trừ học phí cố định hàng tháng */}
+              {/* % Giảm trừ học phí theo buổi */}
               <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-emerald-950 text-xs">
-                    Giảm trừ học phí cố định hàng tháng (Không bắt buộc)
+                    % Giảm trừ học phí theo buổi (Không bắt buộc)
                   </label>
                   <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    Tự động trừ vào học phí tháng
+                    Tự động tính vào từng buổi
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Số tiền giảm cố định (VNĐ/tháng)</label>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">Phần trăm giảm trừ (%/buổi)</label>
                     <input
                       type="number"
                       min={0}
+                      max={100}
                       step="any"
-                      placeholder="VD: 200000"
-                      value={formData.fixedDiscount || ""}
-                      onChange={(e) => setFormData({ ...formData, fixedDiscount: Math.max(0, Number(e.target.value) || 0) })}
+                      placeholder="VD: 10 hoặc 20 (%)"
+                      value={formData.discountPercent || ""}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono font-bold text-emerald-900"
                     />
                   </div>
@@ -900,7 +914,11 @@ Trân trọng cảm ơn Ba Mẹ!`;
                   </div>
                 </div>
                 <p className="text-[10.5px] text-emerald-800">
-                  Học phí tháng tự động tính = (Số buổi trong tháng × Học phí/buổi) − Giảm trừ cố định.
+                  {formData.discountPercent > 0
+                    ? `Sau giảm ${formData.discountPercent}%: còn ${Math.round(
+                        (Number(formData.feePerLesson) || 0) * (1 - formData.discountPercent / 100)
+                      ).toLocaleString("vi-VN")} đ/buổi (tự động cập nhật toàn bộ hóa đơn chưa thu).`
+                    : "Công thức: Học phí tháng = Số buổi × Đơn giá/buổi × (1 − % giảm trừ / 100)."}
                 </p>
               </div>
 

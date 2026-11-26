@@ -15,6 +15,7 @@ import {
 import { 
   getTodayDateString, 
   getCurrentBillingMonth, 
+  getBillingMonthOptions,
   formatDisplayDate, 
   getCurrentTimeHHmm, 
   isPastDateTime, 
@@ -53,7 +54,7 @@ import {
   FileText
 } from "lucide-react";
 
-const DEFAULT_SURVEY_TEMPLATE = `[MS. DUNG SHINY CENTER - KHẢO SÁT LỊCH RẢNH HỌC BÙ {month}]
+const DEFAULT_SURVEY_TEMPLATE = `[SHINY ENGLISH CENTER - KHẢO SÁT LỊCH RẢNH HỌC BÙ {month}]
 Kính gửi Quý Phụ huynh bé {studentName},
 Trong {month}, bé {studentName} ({className}) có {absentCount} buổi nghỉ học (ngày: {absentDates}).
 Trung tâm có tổ chức học bù trong tháng để con củng cố kiến thức bài học.
@@ -294,7 +295,7 @@ export default function MakeupClassesManager({
         teacherOrAssistantName: selectedStaffMember ? selectedStaffMember.fullName : "Giáo viên/TA",
         roleInCharge: selectedStaffMember?.role === "TEACHER" ? "TEACHER" : "ASSISTANT",
         focusContent: formFocusContent.trim(),
-        targetCourseOrLevel: targetCls?.name || "Trung tâm Ms. Dung Shiny",
+        targetCourseOrLevel: targetCls?.name || "Trung tâm Shiny English",
         students: [],
         status: "SCHEDULED",
         notes: formNotes.trim(),
@@ -618,9 +619,11 @@ export default function MakeupClassesManager({
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
               >
-                <option value="Tháng 11/2026" className="text-slate-900 font-bold">Tháng 11/2026 (Hiện tại)</option>
-                <option value="Tháng 12/2026" className="text-slate-900 font-bold">Tháng 12/2026 (Kỳ tiếp theo)</option>
-                <option value="Tháng 10/2026" className="text-slate-900 font-bold">Tháng 10/2026 (Lịch sử đã reset)</option>
+                {getBillingMonthOptions().map((opt) => (
+                  <option key={opt.value} value={opt.value} className="text-slate-900 font-bold">
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

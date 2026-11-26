@@ -104,7 +104,7 @@ export default function PWAInstaller() {
             </div>
             <div className="min-w-0">
               <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
-                <span>App Ms. Dung Shiny</span>
+                <span>App Shiny English</span>
                 <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] rounded-full font-semibold">
                   PWA
                 </span>
@@ -155,7 +155,7 @@ export default function PWAInstaller() {
 
             <div className="space-y-3 text-xs text-slate-600">
               <p className="font-medium text-slate-800">
-                Để cài ứng dụng <strong>Ms. Dung Shiny</strong> vào màn hình chính iPhone:
+                Để cài ứng dụng <strong>Shiny English</strong> vào màn hình chính iPhone:
               </p>
 
               <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">

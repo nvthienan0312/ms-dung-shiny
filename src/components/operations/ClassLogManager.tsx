@@ -49,23 +49,21 @@ import {
 } from "@/utils/zaloHelper";
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 import ZaloBatchQueueModal, { ZaloQueueItem } from "@/components/common/ZaloBatchQueueModal";
-import { getTodayDateString } from "@/utils/dateHelper";
+import { getTodayDateString, addDaysToDateStr, getDayOfWeekNumber } from "@/utils/dateHelper";
 
 
 export interface ClassLogManagerProps {
   userRole?: "ASSISTANT" | "TEACHER" | "ADMIN";
-  currentStaffId?: string; // id của GV ("staff-t1") hoặc TA ("staff-ta1")
+  currentStaffId?: string;
 }
 
 function getDayOfWeekFromDate(dateStr: string): number {
-  const d = new Date(dateStr);
-  const jsDay = d.getDay();
-  return jsDay === 0 ? 8 : jsDay + 1; // 2: Thứ 2, ..., 8: Chủ Nhật
+  return getDayOfWeekNumber(dateStr);
 }
 
 export default function ClassLogManager({
   userRole = "TEACHER",
-  currentStaffId = "staff-t1",
+  currentStaffId = "",
 }: ClassLogManagerProps) {
   const { 
     classes, 
@@ -77,6 +75,7 @@ export default function ClassLogManager({
     attendance,
     assignments,
     createAssignment,
+    updateAssignment,
     sendZaloClassGroupMessage,
     sendZaloMessageToParent,
     renderZaloTemplate
@@ -119,10 +118,10 @@ export default function ClassLogManager({
   const [grammarFocus, setGrammarFocus] = useState<string>("");
   const [homeworkTitle, setHomeworkTitle] = useState<string>("");
   const [homeworkDescription, setHomeworkDescription] = useState<string>("");
-  const [homeworkDeadline, setHomeworkDeadline] = useState<string>("2026-11-08 20:00");
+  const [homeworkDeadline, setHomeworkDeadline] = useState<string>(() => `${addDaysToDateStr(getTodayDateString(), 2)} 20:00`);
   const [submissionType, setSubmissionType] = useState<HomeworkSubmissionType>("BOTH");
-  const [attachmentFileName, setAttachmentFileName] = useState<string>("Phieu_BTVN_Unit4_Family.pdf");
-  const [attachmentFileSize, setAttachmentFileSize] = useState<string>("285 KB");
+  const [attachmentFileName, setAttachmentFileName] = useState<string>("");
+  const [attachmentFileSize, setAttachmentFileSize] = useState<string>("");
   const [generalFeedback, setGeneralFeedback] = useState<string>("");
   const [remarks, setRemarks] = useState<StudentRemark[]>([]);
   const [logStatus, setLogStatus] = useState<"DRAFT" | "PUBLISHED">("DRAFT");
@@ -146,20 +145,29 @@ export default function ClassLogManager({
 
   const dayOfWeek = useMemo(() => getDayOfWeekFromDate(selectedDateStr), [selectedDateStr]);
 
-  // Nhân sự đang thao tác
+  // Nhân sự đang thao tác (không fallback sang nhân sự khác)
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === userRole) || staff[0] || { id: "", fullName: userRole === "TEACHER" ? "Giáo viên" : "Trợ giảng", role: userRole };
+    return (
+      staff.find((s) => s.id === currentStaffId) || {
+        id: "",
+        fullName: userRole === "TEACHER" ? "Giáo viên" : userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên",
+        phone: "",
+        role: userRole,
+      }
+    );
   }, [staff, currentStaffId, userRole]);
 
-  // Danh sách lớp liên quan theo vai trò
+  // Danh sách lớp liên quan theo vai trò (chỉ trả về các lớp thực sự được phân công)
   const relevantClasses = useMemo(() => {
     if (userRole === "ADMIN") return classes;
+    if (!activeStaff.id) return [];
     if (userRole === "TEACHER") {
       return classes.filter((cls) => {
         const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
         if (sub?.subTeacherId) return sub.subTeacherId === activeStaff.id;
         const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-        const slotTeacherId = todaySlot?.teacherId || cls.teacherId;
+        if (!todaySlot) return false;
+        const slotTeacherId = todaySlot.teacherId || cls.teacherId;
         return slotTeacherId === activeStaff.id;
       });
     }
@@ -168,7 +176,8 @@ export default function ClassLogManager({
       const sub = substitutions.find((s) => s.classId === cls.id && s.dateStr === selectedDateStr);
       if (sub?.subAssistantId) return sub.subAssistantId === activeStaff.id;
       const todaySlot = cls.schedules.find((sch) => sch.dayOfWeek === dayOfWeek);
-      const slotAssistantId = todaySlot?.assistantId || cls.assistantId;
+      if (!todaySlot) return false;
+      const slotAssistantId = todaySlot.assistantId || cls.assistantId;
       return slotAssistantId === activeStaff.id;
     });
   }, [classes, userRole, activeStaff, substitutions, selectedDateStr, dayOfWeek]);
@@ -196,22 +205,26 @@ export default function ClassLogManager({
       .sort((a, b) => a.schedule.startTime.localeCompare(b.schedule.startTime));
   }, [relevantClasses, dayOfWeek, selectedDateStr, classLogs]);
 
-  // Tự động chọn lớp đầu tiên trong danh sách nếu chưa chọn
+  // Tự động chọn lớp đầu tiên trong ca học hôm nay (không fallback sang lớp không có lịch / không phụ trách)
   useEffect(() => {
     if (todaySessionsQueue.length > 0) {
       const inQueue = todaySessionsQueue.some((q) => q.classItem.id === selectedClassId);
       if (!inQueue || !selectedClassId) {
         setSelectedClassId(todaySessionsQueue[0].classItem.id);
       }
-    } else if (relevantClasses.length > 0 && !selectedClassId) {
-      setSelectedClassId(relevantClasses[0].id);
+    } else if (selectedClassId) {
+      setSelectedClassId("");
     }
-  }, [todaySessionsQueue, relevantClasses, selectedClassId]);
+  }, [todaySessionsQueue, selectedClassId]);
 
-  // Lớp đang chọn
+  // Lớp đang chọn (chỉ nằm trong ca học hợp lệ của ngày & nhân sự)
   const currentClass = useMemo(() => {
-    return classes.find((c) => c.id === selectedClassId) || relevantClasses[0] || classes[0];
-  }, [classes, selectedClassId, relevantClasses]);
+    if (todaySessionsQueue.length === 0) return undefined;
+    return (
+      todaySessionsQueue.find((q) => q.classItem.id === selectedClassId)?.classItem ||
+      todaySessionsQueue[0].classItem
+    );
+  }, [todaySessionsQueue, selectedClassId]);
 
   // Dạy thay nếu có
   const currentSubstitution = useMemo(() => {
@@ -261,7 +274,7 @@ export default function ClassLogManager({
       setGrammarFocus(existingLog.grammarFocus || "");
       setHomeworkTitle(existingLog.homeworkTitle || "");
       setHomeworkDescription(existingLog.homeworkDescription || "");
-      setHomeworkDeadline(existingLog.homeworkDeadline || "2026-11-08 20:00");
+      setHomeworkDeadline(existingLog.homeworkDeadline || `${addDaysToDateStr(selectedDateStr, 2)} 20:00`);
       setSubmissionType(
         existingLog.submissionType === "BOTH"
           ? "BOTH"
@@ -269,8 +282,8 @@ export default function ClassLogManager({
           ? "WORKBOOK"
           : "VIDEO"
       );
-      setAttachmentFileName(existingLog.attachmentFileName || "Phieu_BTVN_Unit4_Family.pdf");
-      setAttachmentFileSize(existingLog.attachmentFileSize || "285 KB");
+      setAttachmentFileName(existingLog.attachmentFileName || "");
+      setAttachmentFileSize(existingLog.attachmentFileSize || "");
       setGeneralFeedback(existingLog.generalFeedback || "");
       setLogStatus(existingLog.status);
       setPublishedAt(existingLog.publishedAt);
@@ -286,27 +299,24 @@ export default function ClassLogManager({
           studentId: st.id,
           studentName: st.fullName,
           attitude: "EXCELLENT",
-          quickTags: ["Hăng hái phát biểu"],
-          feedback: "Con học rất chăm chú và tương tác tích cực với cô và các bạn.",
+          quickTags: [],
+          feedback: "",
         };
       });
       setRemarks(mergedRemarks);
     } else {
-      // Dữ liệu mẫu khởi tạo mặc định theo giáo trình
-      const defaultTopic = `Unit ${Math.min(currentClass.schedules.length + 3, 10)}: Speaking & Communication Practice`;
-      setLessonTopic(defaultTopic);
-      setLessonContent(
-        `Hôm nay lớp học ${defaultTopic}.\n- Từ vựng trọng tâm: family, father, mother, brother, sister, favorite hobbies\n- Ngữ pháp: "This is my... / I like playing with my..."\n- Tình hình lớp học: Cả lớp học rất hào hứng, tương tác sôi nổi trong trò chơi từ vựng và tự tin phát âm.`
-      );
-      setVocabularyTaught("family, father, mother, brother, sister, favorite hobbies");
-      setGrammarFocus("This is my... / I like playing with my...");
-      setHomeworkTitle("Quay video 1-2 phút giới thiệu chủ đề buổi học & Làm bài tập");
-      setHomeworkDescription("Con quay video tự tin nói 3-5 câu về nội dung vừa học và hoàn thành bài tập trong sách.");
-      setHomeworkDeadline("2026-11-08 20:00");
+      // Khởi tạo trống sạch cho buổi học mới (không tự chèn nội dung giả hay PDF giả)
+      setLessonTopic("");
+      setLessonContent("");
+      setVocabularyTaught("");
+      setGrammarFocus("");
+      setHomeworkTitle("");
+      setHomeworkDescription("");
+      setHomeworkDeadline(`${addDaysToDateStr(selectedDateStr, 2)} 20:00`);
       setSubmissionType("BOTH");
-      setAttachmentFileName("Phieu_BTVN_Unit4_Family.pdf");
-      setAttachmentFileSize("285 KB");
-      setGeneralFeedback("Lớp học hôm nay rất hào hứng, các con tiếp thu tốt và tham gia sôi nổi.");
+      setAttachmentFileName("");
+      setAttachmentFileSize("");
+      setGeneralFeedback("");
       setLogStatus("DRAFT");
       setPublishedAt(undefined);
 
@@ -314,8 +324,8 @@ export default function ClassLogManager({
         studentId: st.id,
         studentName: st.fullName,
         attitude: "EXCELLENT",
-        quickTags: ["Hăng hái phát biểu", "Tự tin giao tiếp"],
-        feedback: "Con học rất tập trung, phát âm to rõ ràng và phản xạ nhanh.",
+        quickTags: [],
+        feedback: "",
       }));
       setRemarks(defaultRemarks);
     }
@@ -470,21 +480,32 @@ export default function ClassLogManager({
     const existingAssign = (assignments || []).find(
       (a) => a.classId === currentClass.id && a.sessionDate === selectedDateStr
     );
-    if (!existingAssign && (homeworkTitle.trim() || homeworkDescription.trim())) {
-      createAssignment({
-        classId: currentClass.id,
-        className: currentClass.name,
-        sessionDate: selectedDateStr,
-        sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
-        title: homeworkTitle || "Bài tập về nhà buổi học",
-        instructions: homeworkDescription || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
-        submissionType: submissionType as any,
-        dueDateTime: homeworkDeadline || "2026-11-08 20:00",
-        points: 10,
-        referenceFileName: attachmentFileName || undefined,
-        status: "ACTIVE",
-        createdBy: effectiveTeacher,
-      });
+    if (homeworkTitle.trim() || homeworkDescription.trim()) {
+      if (existingAssign) {
+        updateAssignment(existingAssign.id, {
+          sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
+          title: homeworkTitle || existingAssign.title || "Bài tập về nhà buổi học",
+          instructions: homeworkDescription || existingAssign.instructions || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
+          submissionType: submissionType as any,
+          dueDateTime: homeworkDeadline || existingAssign.dueDateTime,
+          referenceFileName: attachmentFileName || undefined,
+        });
+      } else {
+        createAssignment({
+          classId: currentClass.id,
+          className: currentClass.name,
+          sessionDate: selectedDateStr,
+          sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
+          title: homeworkTitle || "Bài tập về nhà buổi học",
+          instructions: homeworkDescription || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
+          submissionType: submissionType as any,
+          dueDateTime: homeworkDeadline || `${addDaysToDateStr(selectedDateStr, 2)} 20:00`,
+          points: 10,
+          referenceFileName: attachmentFileName || undefined,
+          status: "ACTIVE",
+          createdBy: effectiveTeacher,
+        });
+      }
     }
 
     setLogStatus("PUBLISHED");
@@ -536,21 +557,32 @@ export default function ClassLogManager({
     const existingAssign = (assignments || []).find(
       (a) => a.classId === currentClass.id && a.sessionDate === selectedDateStr
     );
-    if (!existingAssign && (homeworkTitle.trim() || homeworkDescription.trim())) {
-      createAssignment({
-        classId: currentClass.id,
-        className: currentClass.name,
-        sessionDate: selectedDateStr,
-        sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
-        title: homeworkTitle || "Bài tập về nhà buổi học",
-        instructions: homeworkDescription || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
-        submissionType: submissionType as any,
-        dueDateTime: homeworkDeadline || "2026-11-08 20:00",
-        points: 10,
-        referenceFileName: attachmentFileName || undefined,
-        status: "ACTIVE",
-        createdBy: effectiveTeacher,
-      });
+    if (homeworkTitle.trim() || homeworkDescription.trim()) {
+      if (existingAssign) {
+        updateAssignment(existingAssign.id, {
+          sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
+          title: homeworkTitle || existingAssign.title || "Bài tập về nhà buổi học",
+          instructions: homeworkDescription || existingAssign.instructions || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
+          submissionType: submissionType as any,
+          dueDateTime: homeworkDeadline || existingAssign.dueDateTime,
+          referenceFileName: attachmentFileName || undefined,
+        });
+      } else {
+        createAssignment({
+          classId: currentClass.id,
+          className: currentClass.name,
+          sessionDate: selectedDateStr,
+          sessionTitle: `Buổi ${selectedDateStr}: ${lessonTopic || "Tiếng Anh"}`,
+          title: homeworkTitle || "Bài tập về nhà buổi học",
+          instructions: homeworkDescription || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
+          submissionType: submissionType as any,
+          dueDateTime: homeworkDeadline || `${addDaysToDateStr(selectedDateStr, 2)} 20:00`,
+          points: 10,
+          referenceFileName: attachmentFileName || undefined,
+          status: "ACTIVE",
+          createdBy: effectiveTeacher,
+        });
+      }
     }
 
     // 3. Lọc danh sách học sinh đang học trong lớp
@@ -693,7 +725,7 @@ export default function ClassLogManager({
     setTimeout(() => setToastMessage(null), 5500);
   };
 
-  if (classes.length === 0 || !currentClass) {
+  if (classes.length === 0) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
         <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
@@ -831,6 +863,17 @@ export default function ClassLogManager({
       {/* ============================================================== */}
       {/* 2. KHUNG LÀM VIỆC NHẬT KÝ BUỔI HỌC */}
       {/* ============================================================== */}
+      {!currentClass ? (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-2.5 shadow-xs">
+          <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
+          <h4 className="font-bold text-base text-slate-800">
+            Không Có Ca Giảng Dạy Nào Trong Ngày {selectedDateStr}
+          </h4>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Bạn chỉ có thể viết nhật ký và giao BTVN cho những lớp được phân công giảng dạy có lịch học vào ngày này.
+          </p>
+        </div>
+      ) : (
       <div className={`mx-auto transition-all duration-300 ${isMobileFrame ? "max-w-[440px] shadow-2xl rounded-3xl border-4 border-slate-800 bg-slate-100 p-2 sm:p-3" : "w-full"}`}>
         
         {isMobileFrame && (
@@ -1051,16 +1094,6 @@ export default function ClassLogManager({
                             onClick={() => {
                               const newType = item.type as HomeworkSubmissionType;
                               setSubmissionType(newType);
-                              if (newType === "BOTH") {
-                                if (!homeworkTitle || homeworkTitle.includes("Quay video 1-2 phút")) {
-                                  setHomeworkTitle("[Unit 4] Quay video nói về gia đình & Làm bài tập trang 34-35 Workbook");
-                                }
-                                if (!homeworkDescription || homeworkDescription.includes("Con quay video")) {
-                                  setHomeworkDescription(
-                                    "1. Phần Quay video: Con quay 1 video ngắn 1-2 phút tự tin giới thiệu về 3 người thân trong gia đình.\n2. Phần Sách bài tập: Hoàn thành bài tập trang 34, 35 trong Workbook/Worksheet."
-                                  );
-                                }
-                              }
                             }}
                             className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
                               isSelected
@@ -1121,7 +1154,7 @@ export default function ClassLogManager({
                           disabled={isReadOnly}
                           value={homeworkDeadline}
                           onChange={(e) => setHomeworkDeadline(e.target.value)}
-                          placeholder="2026-11-08 20:00"
+                          placeholder="YYYY-MM-DD HH:mm"
                           className="w-full bg-transparent text-xs font-mono font-medium focus:outline-none"
                         />
                       </div>
@@ -1234,24 +1267,18 @@ export default function ClassLogManager({
                           <span>📁 Duyệt & Chọn Tệp Từ Máy Tính (PDF, Word, Ảnh, Zip...)</span>
                         </button>
 
-                        {/* Quick sample chips */}
-                        {!isReadOnly && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] text-slate-400">Mẫu:</span>
-                            {["Phieu_BTVN_Unit4.pdf", "Workbook_Unit4.png"].map((f) => (
-                              <button
-                                key={f}
-                                type="button"
-                                onClick={() => {
-                                  setAttachmentFileName(f);
-                                  setAttachmentFileSize("320 KB");
-                                }}
-                                className="px-2 py-1 rounded-lg text-[10.5px] font-mono border bg-white hover:bg-slate-100 text-slate-700 border-slate-200 cursor-pointer"
-                              >
-                                {f.split(".")[0].slice(-9)}
-                              </button>
-                            ))}
-                          </div>
+                        {/* Cho phép xóa nhanh tệp nếu lỡ chọn nhầm */}
+                        {!isReadOnly && attachmentFileName && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttachmentFileName("");
+                              setAttachmentFileSize("");
+                            }}
+                            className="px-2.5 py-2 rounded-xl text-xs font-semibold border bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 cursor-pointer shrink-0"
+                          >
+                            Gỡ tệp
+                          </button>
                         )}
                       </div>
                     )}
@@ -1319,6 +1346,7 @@ export default function ClassLogManager({
           )}
         </div>
       </div>
+      )}
 
       {/* MODAL CHỈNH SỬA TIN NHẮN ZALO TRƯỚC KHI GỬI (NHÓM LỚP) */}
       {editZaloModal && (

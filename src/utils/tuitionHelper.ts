@@ -68,7 +68,45 @@ export function isTuitionOverdue(dueDateStr: string): boolean {
  * Định dạng tiền tệ VNĐ
  */
 export function formatVND(amount: number): string {
-  return amount.toLocaleString("vi-VN") + " đ";
+  return Math.round(amount || 0).toLocaleString("vi-VN") + " đ";
+}
+
+/**
+ * Tính toán chi tiết học phí chuẩn theo buổi & % giảm trừ theo buổi:
+ * - calculatedAmount = lessonCount * feePerLesson
+ * - discount = discountPercent > 0 ? Math.round(calculatedAmount * discountPercent / 100) : 0
+ * - finalAmount = Math.max(0, calculatedAmount + surcharge - discount)
+ */
+export function computeStudentTuitionBreakdown(params: {
+  lessonCount: number;
+  feePerLesson: number;
+  discountPercent?: number;
+  surcharge?: number;
+}): {
+  calculatedAmount: number;
+  discountPercent: number;
+  discount: number;
+  surcharge: number;
+  adjustmentAmount: number;
+  finalAmount: number;
+} {
+  const lessons = Math.max(0, Number(params.lessonCount) || 0);
+  const fee = Math.max(0, Number(params.feePerLesson) || 0);
+  const calculatedAmount = Math.round(lessons * fee);
+  const pct = Math.min(100, Math.max(0, Number(params.discountPercent) || 0));
+  const discount = pct > 0 ? Math.round((calculatedAmount * pct) / 100) : 0;
+  const surcharge = Math.max(0, Math.round(Number(params.surcharge) || 0));
+  const adjustmentAmount = surcharge - discount;
+  const finalAmount = Math.max(0, calculatedAmount + adjustmentAmount);
+
+  return {
+    calculatedAmount,
+    discountPercent: pct,
+    discount,
+    surcharge,
+    adjustmentAmount,
+    finalAmount,
+  };
 }
 
 /**
@@ -133,18 +171,18 @@ export function generateTuitionReminderMessage(
   if (templateType === "MULTI_MONTH_DEBT" && debtSummary && debtSummary.isMultiMonthDebt) {
     const monthsStr = debtSummary.monthsList.join(", ");
     const totalAmountStr = formatVND(debtSummary.totalDebtAmount);
-    return `[MS. DUNG SHINY] Kính gửi Phụ huynh ${parentName}! Trung tâm xin thông báo học phí của con ${childName} hiện đang còn tồn đọng ${debtSummary.debtMonthsCount} kỳ học (${monthsStr}) với tổng số tiền nợ là ${totalAmountStr}. Kính đề nghị Quý phụ huynh thanh toán sớm qua VietQR hoặc liên hệ Ban Quản lý để chốt lộ trình đóng học phí. Trân trọng cảm ơn Quý phụ huynh!`;
+    return `[SHINY ENGLISH] Kính gửi Phụ huynh ${parentName}! Trung tâm xin thông báo học phí của con ${childName} hiện đang còn tồn đọng ${debtSummary.debtMonthsCount} kỳ học (${monthsStr}) với tổng số tiền nợ là ${totalAmountStr}. Kính đề nghị Quý phụ huynh thanh toán sớm qua VietQR hoặc liên hệ Ban Quản lý để chốt lộ trình đóng học phí. Trân trọng cảm ơn Quý phụ huynh!`;
   }
 
   if (templateType === "OVERDUE_SINGLE") {
-    return `[MS. DUNG SHINY] Kính gửi Phụ huynh ${parentName}! Học phí kỳ ${month} của bé ${childName} (${amount} - ${lessons} buổi) hiện đã quá hạn ngày 10. Kính mời Quý phụ huynh vui lòng thanh toán sớm qua mã VietQR trên Cổng Phụ Huynh để trung tâm quyết toán học phí của lớp. Xin cảm ơn!`;
+    return `[SHINY ENGLISH] Kính gửi Phụ huynh ${parentName}! Học phí kỳ ${month} của bé ${childName} (${amount} - ${lessons} buổi) hiện đã quá hạn ngày 10. Kính mời Quý phụ huynh vui lòng thanh toán sớm qua mã VietQR trên Cổng Phụ Huynh để trung tâm quyết toán học phí của lớp. Xin cảm ơn!`;
   }
 
   if (templateType === "DUE_APPROACHING") {
-    return `[MS. DUNG SHINY] Kính gửi Phụ huynh ${parentName}! Học phí kỳ ${month} của bé ${childName} là ${amount} (${lessons} buổi), hạn chót nộp vào ngày ${bill.dueDate}. Quý phụ huynh vui lòng quét mã VietQR để hoàn tất học phí cho con đúng hạn. Chúc con luôn học tập tốt!`;
+    return `[SHINY ENGLISH] Kính gửi Phụ huynh ${parentName}! Học phí kỳ ${month} của bé ${childName} là ${amount} (${lessons} buổi), hạn chót nộp vào ngày ${bill.dueDate}. Quý phụ huynh vui lòng quét mã VietQR để hoàn tất học phí cho con đúng hạn. Chúc con luôn học tập tốt!`;
   }
 
   // Mặc định: MONTH_START (Nhắc đầu tháng)
-  return `[MS. DUNG SHINY] Kính gửi Phụ huynh ${parentName}! Trung tâm xin gửi thông báo học phí kỳ ${month} của bé ${childName}: ${lessons} buổi × ${formatVND(bill.feePerLesson)} = ${amount}. Hạn đóng định kỳ: 01 - 10 hàng tháng. Kính mời Quý phụ huynh mở Cổng Phụ Huynh để quét mã VietQR. Trân trọng cảm ơn!`;
+  return `[SHINY ENGLISH] Kính gửi Phụ huynh ${parentName}! Trung tâm xin gửi thông báo học phí kỳ ${month} của bé ${childName}: ${lessons} buổi × ${formatVND(bill.feePerLesson)} = ${amount}. Hạn đóng định kỳ: 01 - 10 hàng tháng. Kính mời Quý phụ huynh mở Cổng Phụ Huynh để quét mã VietQR. Trân trọng cảm ơn!`;
 }
 

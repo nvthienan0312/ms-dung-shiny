@@ -3,11 +3,24 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useCenter } from "@/context/CenterContext";
 import { 
-  AssignmentItem
+  AssignmentItem,
+  ClassLogItem,
+  CENTER_BANK_CONFIG
 } from "@/data/centerData";
 import { saveMediaBlob, fileToSmallDataUrl } from "@/utils/mediaStorage";
-import { getStudentDebtSummary, formatVND } from "@/utils/tuitionHelper";
-import { getTodayDateString } from "@/utils/dateHelper";
+import { getStudentDebtSummary, formatVND, calculateMonthLessons, computeStudentTuitionBreakdown } from "@/utils/tuitionHelper";
+import { getTodayDateString, parseLocalDate, getDayOfWeekLabel, getCurrentBillingMonth, getBillingMonthOptions, getDefaultTuitionDueDate } from "@/utils/dateHelper";
+
+function getWeekMondayKey(dateStr: string): string {
+  const d = parseLocalDate(dateStr);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diffToMon);
+  const y = mon.getFullYear();
+  const m = String(mon.getMonth() + 1).padStart(2, "0");
+  const dd = String(mon.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
 import { 
   BookOpen, 
   Calendar, 
@@ -120,6 +133,8 @@ export default function ParentPortal() {
   const [submissionTitle, setSubmissionTitle] = useState("");
   const [workbookFileName, setWorkbookFileName] = useState("");
   const [studentComment, setStudentComment] = useState("");
+  const [isShowAllLogs, setIsShowAllLogs] = useState(false);
+  const [isUploadingHomework, setIsUploadingHomework] = useState(false);
 
   // Homework File Attachment State
   const [attachedFile, setAttachedFile] = useState<{
@@ -175,11 +190,14 @@ export default function ParentPortal() {
 
   // VietQR Modal State (Đóng học phí theo tháng)
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState<{ monthLabel: string; amount: number; label: string; sub: string }>({
-    monthLabel: "Tháng 11/2026",
-    amount: 1600000,
-    label: "Học Phí Tháng 11/2026",
-    sub: "1.600.000 đ (1 Tháng)",
+  const [selectedPackage, setSelectedPackage] = useState<{ monthLabel: string; amount: number; label: string; sub: string }>(() => {
+    const curM = getCurrentBillingMonth();
+    return {
+      monthLabel: curM,
+      amount: 0,
+      label: `Học Phí ${curM}`,
+      sub: "Đang tính theo kỳ học",
+    };
   });
 
   // Toast notification state
@@ -196,10 +214,10 @@ export default function ParentPortal() {
     return myChildren.find((s) => s.id === selectedStudentId) || myChildren[0];
   }, [myChildren, selectedStudentId]);
 
-  // Active student's class
+  // Active student's class (không fallback sang lớp khác)
   const activeClass = useMemo(() => {
-    if (!activeStudent?.classId) return classes?.[0];
-    return (classes || []).find((c) => c.id === activeStudent.classId) || classes?.[0];
+    if (!activeStudent?.classId) return undefined;
+    return (classes || []).find((c) => c.id === activeStudent.classId);
   }, [classes, activeStudent]);
 
   // Active student's teacher and TA
@@ -239,22 +257,41 @@ export default function ParentPortal() {
     return (incidentNotes || []).filter((n) => n.studentId === activeStudent.id);
   }, [incidentNotes, activeStudent]);
 
-  // Class Log for student's class
-  const currentClassLog = useMemo(() => {
-    const logs = classLogs || [];
-    if (!activeStudent) return logs[0];
-    return (
-      logs.find((l) => l.classId === activeStudent.classId && l.status === "PUBLISHED") ||
-      logs.find((l) => l.classId === activeStudent.classId) ||
-      logs[0]
-    );
+  // All PUBLISHED Class Logs for student's class (newest first)
+  const classPublishedLogs = useMemo(() => {
+    if (!activeStudent?.classId) return [] as ClassLogItem[];
+    return (classLogs || [])
+      .filter((l) => l.classId === activeStudent.classId && l.status === "PUBLISHED")
+      .sort((a, b) => b.dateStr.localeCompare(a.dateStr));
   }, [classLogs, activeStudent]);
 
-  // Specific remark for this student in the log
-  const studentRemark = useMemo(() => {
-    if (!currentClassLog || !activeStudent) return undefined;
-    return (currentClassLog.studentRemarks || []).find((r) => r.studentId === activeStudent.id);
-  }, [currentClassLog, activeStudent]);
+  // Toàn bộ các buổi đã phát hành trong tuần học hiện tại (hoặc tuần mới nhất có nhật ký)
+  const currentWeekPublishedLogs = useMemo(() => {
+    if (classPublishedLogs.length === 0) return [] as ClassLogItem[];
+    const thisWeekKey = getWeekMondayKey(getTodayDateString());
+    const inThisWeek = classPublishedLogs.filter((l) => getWeekMondayKey(l.dateStr) === thisWeekKey);
+    if (inThisWeek.length > 0) {
+      return [...inThisWeek].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+    }
+    const latestWeekKey = getWeekMondayKey(classPublishedLogs[0].dateStr);
+    return classPublishedLogs
+      .filter((l) => getWeekMondayKey(l.dateStr) === latestWeekKey)
+      .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  }, [classPublishedLogs]);
+
+  const visiblePublishedLogs = useMemo(() => {
+    if (isShowAllLogs) return classPublishedLogs;
+    return currentWeekPublishedLogs;
+  }, [isShowAllLogs, classPublishedLogs, currentWeekPublishedLogs]);
+
+  // Latest Class Log (for backward-compatible single references)
+  const currentClassLog = useMemo(() => {
+    if (!activeStudent?.classId) return undefined;
+    return (
+      classPublishedLogs[0] ||
+      (classLogs || []).find((l) => l.classId === activeStudent.classId)
+    );
+  }, [classPublishedLogs, classLogs, activeStudent]);
 
   // Homework submissions for this student
   const studentSubmissions = useMemo(() => {
@@ -262,11 +299,37 @@ export default function ParentPortal() {
     return (homeworkSubmissions || []).filter((s) => s.studentId === activeStudent.id);
   }, [homeworkSubmissions, activeStudent]);
 
-  // Assignments for active class (MS Teams style)
+  // Assignments for active class (MS Teams style + đồng bộ từ mọi ClassLog PUBLISHED có BTVN)
   const classAssignments = useMemo(() => {
     if (!activeClass) return [];
-    return (assignments || []).filter((a) => a.classId === activeClass.id);
-  }, [assignments, activeClass]);
+    const directAssigns = (assignments || []).filter((a) => a.classId === activeClass.id);
+    const merged: AssignmentItem[] = [...directAssigns];
+    const coveredDates = new Set(directAssigns.map((a) => a.sessionDate));
+
+    classPublishedLogs.forEach((log) => {
+      const hasHw = Boolean(log.homeworkTitle?.trim() || log.homeworkDescription?.trim());
+      if (!hasHw || coveredDates.has(log.dateStr)) return;
+      coveredDates.add(log.dateStr);
+      merged.push({
+        id: `log-assign-${log.id}`,
+        classId: log.classId,
+        className: log.className || activeClass.name,
+        sessionDate: log.dateStr,
+        sessionTitle: `Buổi ${log.dateStr}: ${log.lessonTopic || "Tiếng Anh"}`,
+        title: log.homeworkTitle?.trim() || "Bài tập về nhà buổi học",
+        instructions: log.homeworkDescription?.trim() || "Con hoàn thành bài tập về nhà theo hướng dẫn của thầy cô.",
+        submissionType: (log.submissionType || "BOTH") as any,
+        dueDateTime: log.homeworkDeadline || log.dateStr,
+        points: 10,
+        referenceFileName: log.attachmentFileName,
+        status: "ACTIVE",
+        createdAt: log.publishedAt || log.dateStr,
+        createdBy: log.authorName || activeClass.teacherName || "Giáo viên",
+      });
+    });
+
+    return merged.sort((a, b) => (b.sessionDate || "").localeCompare(a.sessionDate || ""));
+  }, [assignments, activeClass, classPublishedLogs]);
 
   // Lớp học bù của bé trong tháng nếu có
   const studentMakeupClasses = useMemo(() => {
@@ -276,12 +339,18 @@ export default function ParentPortal() {
     );
   }, [makeupClasses, activeStudent]);
 
-  // MS Teams: Cần nộp (ASSIGNED) vs Đã nộp (COMPLETED)
+  // MS Teams: Cần nộp (ASSIGNED) vs Đã nộp (COMPLETED) — tách riêng từng buổi theo assignmentId
   const assignedList = useMemo(() => {
     return classAssignments.filter((assign) => {
-      const hasSubmitted = studentSubmissions.some(
-        (sub) => sub.assignmentId === assign.id || sub.assignmentTitle === assign.title
-      );
+      const hasSubmitted = studentSubmissions.some((sub) => {
+        if (sub.assignmentId) {
+          return sub.assignmentId === assign.id;
+        }
+        return (
+          sub.assignmentTitle === assign.title &&
+          (!sub.sessionTitle || !assign.sessionDate || sub.sessionTitle.includes(assign.sessionDate))
+        );
+      });
       return !hasSubmitted;
     });
   }, [classAssignments, studentSubmissions]);
@@ -289,7 +358,7 @@ export default function ParentPortal() {
   const completedList = useMemo(() => {
     return studentSubmissions.map((sub) => {
       const matchedAssign = classAssignments.find(
-        (a) => a.id === sub.assignmentId || a.title === sub.assignmentTitle
+        (a) => a.id === sub.assignmentId || (!sub.assignmentId && a.title === sub.assignmentTitle)
       );
       return {
         submission: sub,
@@ -313,7 +382,7 @@ export default function ParentPortal() {
   // Current Month Tuition Bill (Tính theo số buổi trong tháng)
   const currentTuitionBill = useMemo(() => {
     if (!activeStudent) return null;
-    const currentMonth = activeStudent.currentBillingMonth || "Tháng 11/2026";
+    const currentMonth = activeStudent.currentBillingMonth || getCurrentBillingMonth();
     return (studentTuitionBills || []).find(
       (b) => b.studentId === activeStudent.id && b.billingMonth === currentMonth
     );
@@ -336,15 +405,15 @@ export default function ParentPortal() {
 
     const autoMediaTitle = attachedFile?.name || submissionTitle || (
       isBoth
-        ? `Video_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Unit4.mp4`
+        ? `Video_${(activeStudent.fullName || "").replace(/\s+/g, "")}.mp4`
         : homeworkType === "VIDEO" 
-        ? `Video_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Speaking.mp4`
+        ? `Video_${(activeStudent.fullName || "").replace(/\s+/g, "")}.mp4`
         : homeworkType === "AUDIO"
-        ? `Audio_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Pronunciation.m4a`
-        : `Workbook_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Page34.jpg`
+        ? `Audio_${(activeStudent.fullName || "").replace(/\s+/g, "")}.m4a`
+        : `Workbook_${(activeStudent.fullName || "").replace(/\s+/g, "")}.jpg`
     );
 
-    const assignmentTitleToSave = selectedAssignmentForSubmission?.title || currentClassLog?.homeworkTitle || "Unit 4: Video thuyết trình và Sách bài tập";
+    const assignmentTitleToSave = selectedAssignmentForSubmission?.title || currentClassLog?.homeworkTitle || "Bài tập về nhà";
     const sessionTitleToSave = selectedAssignmentForSubmission?.sessionTitle || `Buổi học lớp ${activeClass.name}`;
 
     let mediaStorageKey: string | undefined;
@@ -354,68 +423,88 @@ export default function ParentPortal() {
     let workbookImageUrl: string | undefined;
     let workbookMimeType: string | undefined;
 
-    if (attachedFile?.file) {
-      mediaStorageKey = `hw_media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      mediaMimeType = attachedFile.type || attachedFile.file.type;
+    const uploadMediaFile = async (file: File): Promise<string | undefined> => {
       try {
-        await saveMediaBlob(mediaStorageKey, attachedFile.file);
-        mediaUrl = await fileToSmallDataUrl(attachedFile.file);
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/homework-media", { method: "POST", body: fd });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.success && json?.url) return json.url as string;
+        }
       } catch (err) {
-        console.warn("Không thể lưu tệp media vào IndexedDB:", err);
+        console.warn("Lỗi upload tệp bài tập lên server:", err);
       }
-      if (homeworkType === "WORKBOOK") {
-        workbookStorageKey = mediaStorageKey;
-        workbookMimeType = mediaMimeType;
-        workbookImageUrl = mediaUrl;
+      return await fileToSmallDataUrl(file);
+    };
+
+    setIsUploadingHomework(true);
+    try {
+      if (attachedFile?.file) {
+        mediaStorageKey = `hw_media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        mediaMimeType = attachedFile.type || attachedFile.file.type;
+        try {
+          await saveMediaBlob(mediaStorageKey, attachedFile.file);
+        } catch (err) {
+          console.warn("Không thể lưu tệp media vào IndexedDB:", err);
+        }
+        mediaUrl = await uploadMediaFile(attachedFile.file);
+        if (homeworkType === "WORKBOOK") {
+          workbookStorageKey = mediaStorageKey;
+          workbookMimeType = mediaMimeType;
+          workbookImageUrl = mediaUrl;
+        }
       }
+
+      if (attachedWorkbookFile?.file) {
+        workbookStorageKey = `hw_wb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        workbookMimeType = attachedWorkbookFile.type || attachedWorkbookFile.file.type;
+        try {
+          await saveMediaBlob(workbookStorageKey, attachedWorkbookFile.file);
+        } catch (err) {
+          console.warn("Không thể lưu tệp workbook vào IndexedDB:", err);
+        }
+        workbookImageUrl = await uploadMediaFile(attachedWorkbookFile.file);
+      }
+
+      submitHomework({
+        studentId: activeStudent.id,
+        studentName: activeStudent.fullName,
+        studentCode: activeStudent.studentCode,
+        classId: activeClass.id,
+        assignmentId: selectedAssignmentForSubmission?.id,
+        sessionTitle: sessionTitleToSave,
+        assignmentTitle: assignmentTitleToSave,
+        submissionType: homeworkType,
+        mediaTitle: autoMediaTitle,
+        mediaUrl,
+        mediaStorageKey,
+        mediaMimeType,
+        mediaDuration: undefined,
+        attachmentFileName: attachedFile?.name,
+        attachmentFileSize: attachedFile?.size,
+        attachmentFileUrl: mediaUrl,
+        workbookImageFileName: isBoth 
+          ? (attachedWorkbookFile?.name || undefined)
+          : homeworkType === "WORKBOOK" ? (attachedFile?.name || autoMediaTitle) : undefined,
+        workbookFileSize: isBoth ? attachedWorkbookFile?.size : (homeworkType === "WORKBOOK" ? attachedFile?.size : undefined),
+        workbookImageUrl,
+        workbookStorageKey,
+        workbookMimeType,
+        commentFromStudent: studentComment || "Con đã hoàn thành bài tập nộp cô giáo và thầy trợ giảng ạ!",
+      });
+
+      setIsHomeworkModalOpen(false);
+      setSelectedAssignmentForSubmission(null);
+      setSubmissionTitle("");
+      setWorkbookFileName("");
+      setStudentComment("");
+      setAttachedFile(null);
+      setAttachedWorkbookFile(null);
+      showToast(`Nộp bài tập "${assignmentTitleToSave}" thành công cho bé ${activeStudent.fullName}! Thầy Trợ Giảng sẽ kiểm tra và nhận xét sớm.`);
+    } finally {
+      setIsUploadingHomework(false);
     }
-
-    if (attachedWorkbookFile?.file) {
-      workbookStorageKey = `hw_wb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      workbookMimeType = attachedWorkbookFile.type || attachedWorkbookFile.file.type;
-      try {
-        await saveMediaBlob(workbookStorageKey, attachedWorkbookFile.file);
-        workbookImageUrl = await fileToSmallDataUrl(attachedWorkbookFile.file);
-      } catch (err) {
-        console.warn("Không thể lưu tệp workbook vào IndexedDB:", err);
-      }
-    }
-
-    submitHomework({
-      studentId: activeStudent.id,
-      studentName: activeStudent.fullName,
-      studentCode: activeStudent.studentCode,
-      classId: activeClass.id,
-      assignmentId: selectedAssignmentForSubmission?.id,
-      sessionTitle: sessionTitleToSave,
-      assignmentTitle: assignmentTitleToSave,
-      submissionType: homeworkType,
-      mediaTitle: autoMediaTitle,
-      mediaUrl,
-      mediaStorageKey,
-      mediaMimeType,
-      mediaDuration: (homeworkType === "VIDEO" || isBoth) ? "1m 30s" : homeworkType === "AUDIO" ? "45s" : undefined,
-      attachmentFileName: attachedFile?.name,
-      attachmentFileSize: attachedFile?.size,
-      attachmentFileUrl: mediaUrl,
-      workbookImageFileName: isBoth 
-        ? (attachedWorkbookFile?.name || workbookFileName || `Workbook_${(activeStudent.fullName || "").replace(/\s+/g, "")}_Trang34-35.jpg`)
-        : homeworkType === "WORKBOOK" ? (attachedFile?.name || autoMediaTitle) : undefined,
-      workbookFileSize: isBoth ? attachedWorkbookFile?.size : (homeworkType === "WORKBOOK" ? attachedFile?.size : undefined),
-      workbookImageUrl,
-      workbookStorageKey,
-      workbookMimeType,
-      commentFromStudent: studentComment || "Con đã hoàn thành bài tập nộp cô giáo và thầy trợ giảng ạ!",
-    });
-
-    setIsHomeworkModalOpen(false);
-    setSelectedAssignmentForSubmission(null);
-    setSubmissionTitle("");
-    setWorkbookFileName("");
-    setStudentComment("");
-    setAttachedFile(null);
-    setAttachedWorkbookFile(null);
-    showToast(`Nộp bài tập "${assignmentTitleToSave}" thành công cho bé ${activeStudent.fullName}! Thầy Trợ Giảng sẽ kiểm tra và nhận xét sớm.`);
   };
 
   const handleOpenSubmitModal = (assign: AssignmentItem) => {
@@ -432,7 +521,7 @@ export default function ParentPortal() {
         ? "BOTH"
         : "VIDEO"
     );
-    setWorkbookFileName(`Workbook_${(activeStudent?.fullName || "").replace(/\s+/g, "")}_Trang34-35.jpg`);
+    setWorkbookFileName("");
     setIsHomeworkModalOpen(true);
   };
 
@@ -480,7 +569,7 @@ export default function ParentPortal() {
             Số điện thoại <strong className="font-mono text-slate-800">{currentUserAccount?.phone}</strong> chưa được liên kết với hồ sơ học sinh nào trong hệ thống.
           </p>
           <p className="text-[11px] text-slate-400">
-            Vui lòng liên hệ trung tâm Tiếng Anh Ms. Dung Shiny (Hotline: 0964645174) để kiểm tra và cập nhật số điện thoại phụ huynh.
+            Vui lòng liên hệ trung tâm Tiếng Anh Shiny English (Hotline: 0964645174) để kiểm tra và cập nhật số điện thoại phụ huynh.
           </p>
         </div>
       </div>
@@ -674,7 +763,7 @@ export default function ParentPortal() {
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <FileCheck className="w-3.5 h-3.5" /> Bài Tập Về Nhà ({studentSubmissions.length})
+            <FileCheck className="w-3.5 h-3.5" /> Bài Tập Về Nhà ({assignedList.length > 0 ? `${assignedList.length} cần nộp` : `${completedList.length} đã nộp`})
           </button>
 
           <button
@@ -969,135 +1058,111 @@ export default function ParentPortal() {
             </div>
           )}
 
-          {/* HÀNG 3: NHẬT KÝ CHI TIẾT & NỘI DUNG BÀI HỌC TRÊN LỚP */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-200">
-                    Nội Dung Buổi Học Mới Nhất
-                  </span>
-                  <span className="text-xs font-mono text-slate-400">
-                    {currentClassLog?.dateStr || getTodayDateString()}
-                  </span>
-                </div>
-                <h4 className="font-bold text-base text-slate-900 mt-1">
-                  {currentClassLog?.lessonTopic || "Unit 4: My Loving Family & Favorite Hobbies"}
+          {/* HÀNG 3: NỘI DUNG CÁC BUỔI HỌC TRONG TUẦN TRÊN SỔ LIÊN LẠC (KHÔNG CHỨA KHUNG NỘP BTVN) */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-blue-600" />
+                <h4 className="font-bold text-sm text-slate-900">
+                  Nội Dung Các Buổi Học Trong Tuần ({visiblePublishedLogs.length} buổi)
                 </h4>
               </div>
-
-              <div className="text-xs text-slate-500">
-                Giáo viên: <strong className="text-slate-800">{currentClassLog?.authorName || classTeacher.fullName}</strong>
-              </div>
+              {classPublishedLogs.length > currentWeekPublishedLogs.length && (
+                <button
+                  type="button"
+                  onClick={() => setIsShowAllLogs((prev) => !prev)}
+                  className="text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-xl border border-blue-200 transition"
+                >
+                  {isShowAllLogs
+                    ? "Chỉ xem các buổi trong tuần"
+                    : `Xem thêm các buổi trước (${classPublishedLogs.length})`}
+                </button>
+              )}
             </div>
 
-            {/* Lời nhận xét riêng cho con */}
-            <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 text-xs space-y-1.5">
-              <div className="font-bold text-amber-900 flex items-center gap-1.5 text-xs sm:text-sm">
-                <Sparkles className="w-4 h-4 text-amber-600 fill-amber-400" />
-                <span>Lời Nhận Xét Dành Riêng Cho Bé {activeStudent?.fullName}:</span>
+            {visiblePublishedLogs.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-500">
+                Giáo viên chưa xuất bản nội dung buổi học nào cho lớp {activeClass?.name || ""} trong tuần này.
               </div>
-              <p className="text-slate-800 italic leading-relaxed text-xs sm:text-[13px]">
-                &ldquo;{studentRemark?.feedback || "Hôm nay con học tập rất tích cực, tương tác hào hứng với giáo viên và phát âm chuẩn xác từ vựng mới."}&rdquo;
-              </p>
-            </div>
+            ) : (
+              visiblePublishedLogs.map((logItem) => {
+                const sessionRemark = (logItem.studentRemarks || []).find(
+                  (r) => r.studentId === activeStudent?.id
+                );
+                const dayLabel = getDayOfWeekLabel(logItem.dateStr);
+                return (
+                  <div key={logItem.id} className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-200">
+                            {dayLabel} • {logItem.dateStr}
+                          </span>
+                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            ✓ Đã phát hành
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-base text-slate-900 mt-1.5">
+                          {logItem.lessonTopic || "Nội dung buổi học"}
+                        </h4>
+                      </div>
 
-            {/* Nội dung bài học con đã học */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-800 block mb-1">
-                  📚 Từ vựng con đã học hôm nay:
-                </span>
-                <p className="font-mono text-slate-700 text-[11px] leading-relaxed">
-                  {currentClassLog?.vocabularyTaught || "grandfather, grandmother, uncle, aunt, cousin, nephew, play chess, ride a bike"}
-                </p>
-              </div>
-
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-800 block mb-1">
-                  💬 Mẫu câu giao tiếp trọng tâm:
-                </span>
-                <p className="text-slate-700 text-[11px] leading-relaxed">
-                  {currentClassLog?.grammarFocus || "Who is that? - That is my uncle. He likes reading books in his free time."}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* HÀNG 4: BÀI TẬP VỀ NHÀ ĐƯỢC GIAO */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs">
-                  ✍️
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">
-                    {currentClassLog?.homeworkTitle || "Quay video 1-2 phút giới thiệu về 3 thành viên gia đình + Bài tập trang 34-35"}
-                  </h4>
-                  <span className="text-[11px] text-slate-500">
-                    Hình thức nộp: <strong className="text-blue-700">Video & Sách bài tập</strong>
-                  </span>
-                </div>
-              </div>
-
-              <span className="text-[11px] px-2.5 py-1 rounded-lg bg-rose-50 text-rose-800 font-bold border border-rose-200 flex items-center gap-1 self-start sm:self-center">
-                <Clock className="w-3.5 h-3.5 text-rose-600" />
-                Hạn chót: {currentClassLog?.homeworkDeadline || "2026-11-08 20:00"}
-              </span>
-            </div>
-
-            <div className="text-xs text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <strong className="text-slate-900">Hướng dẫn làm bài: </strong>
-              {currentClassLog?.homeworkDescription || "Con quay 1 video ngắn (1-2 phút) tự tin giới thiệu về 3 người thân trong gia đình (sử dụng mẫu câu 'This is my... / He/She likes...'). Hoàn thành bài tập trắc nghiệm và điền từ trang 34, 35 Sách Bài Tập."}
-            </div>
-
-            {/* Tệp đính kèm bài tập PDF của buổi học nếu có */}
-            {currentClassLog?.attachmentFileName && (
-              <div className="p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 rounded-xl flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                    PDF
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs text-rose-950 flex items-center gap-1.5">
-                      <span>{currentClassLog.attachmentFileName}</span>
-                      <span className="text-[10px] bg-rose-100 text-rose-800 px-1.5 py-0.2 rounded font-mono font-semibold">
-                        {currentClassLog.attachmentFileSize || "285 KB"}
-                      </span>
+                      <div className="text-xs text-slate-500">
+                        Phụ trách: <strong className="text-slate-800">{logItem.authorName || classTeacher.fullName}</strong>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-rose-700 mt-0.5">
-                      Tài liệu / Phiếu bài tập về nhà thầy cô đính kèm cho con
-                    </div>
+
+                    {logItem.lessonContent && (
+                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-800 whitespace-pre-line leading-relaxed">
+                        {logItem.lessonContent}
+                      </div>
+                    )}
+
+                    {/* Lời nhận xét riêng cho con trong buổi học này */}
+                    {(sessionRemark?.feedback || logItem.generalFeedback) && (
+                      <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 text-xs space-y-1.5">
+                        <div className="font-bold text-amber-900 flex items-center gap-1.5 text-xs sm:text-sm">
+                          <Sparkles className="w-4 h-4 text-amber-600 fill-amber-400" />
+                          <span>
+                            {sessionRemark?.feedback
+                              ? `Lời Nhận Xét Dành Riêng Cho Bé ${activeStudent?.fullName}:`
+                              : "Nhận Xét Chung Của Giáo Viên:"}
+                          </span>
+                        </div>
+                        <p className="text-slate-800 italic leading-relaxed text-xs sm:text-[13px]">
+                          &ldquo;{sessionRemark?.feedback || logItem.generalFeedback}&rdquo;
+                        </p>
+                      </div>
+                    )}
+
+                    {(logItem.vocabularyTaught || logItem.grammarFocus) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                        {logItem.vocabularyTaught && (
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span className="font-bold text-slate-800 block mb-1">
+                              📚 Từ vựng con đã học:
+                            </span>
+                            <p className="font-mono text-slate-700 text-[11px] leading-relaxed">
+                              {logItem.vocabularyTaught}
+                            </p>
+                          </div>
+                        )}
+                        {logItem.grammarFocus && (
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span className="font-bold text-slate-800 block mb-1">
+                              💬 Mẫu câu giao tiếp trọng tâm:
+                            </span>
+                            <p className="text-slate-700 text-[11px] leading-relaxed">
+                              {logItem.grammarFocus}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <a
-                    href={`/files/btvn/${encodeURIComponent(currentClassLog.attachmentFileName)}`}
-                    download
-                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Tải File PDF</span>
-                  </a>
-                </div>
-              </div>
+                );
+              })
             )}
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-              <span className="text-[11px] text-slate-500 italic">
-                *Bố mẹ quay video cho con và nộp trực tiếp tại đây để Thầy Trợ Giảng nghe và nhận xét sửa âm.
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setIsHomeworkModalOpen(true)}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5"
-              >
-                <Video className="w-3.5 h-3.5" />
-                <span>Nộp Bài Tập Của Bé Ngay</span>
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -1749,7 +1814,7 @@ export default function ParentPortal() {
                 </div>
 
                 <div className="py-4 text-center bg-gradient-to-br from-amber-50 to-emerald-50/40 rounded-xl border border-amber-200 my-3">
-                  <span className="text-xs text-slate-500 font-medium">Tình trạng kỳ {activeStudent?.currentBillingMonth || "Tháng 11/2026"}:</span>
+                  <span className="text-xs text-slate-500 font-medium">Tình trạng kỳ {currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth()}:</span>
                   <div className={`text-2xl font-bold mt-1 ${
                     (currentTuitionBill?.status === "PAID" || activeStudent?.tuitionStatus === "PAID") ? "text-emerald-700" : "text-rose-600"
                   }`}>
@@ -1757,8 +1822,10 @@ export default function ParentPortal() {
                   </div>
                   <span className="text-[11px] text-slate-500 block mt-1">
                     {(currentTuitionBill?.status === "PAID" || activeStudent?.tuitionStatus === "PAID")
-                      ? `Đã thanh toán ngày 01/11/2026 qua chuyển khoản VietQR` 
-                      : `Hạn đóng học phí: ${currentTuitionBill?.dueDate || activeStudent?.tuitionDueDate || "10/11/2026"}`}
+                      ? (currentTuitionBill?.paidAt
+                          ? `Đã thanh toán ngày ${new Date(currentTuitionBill.paidAt).toLocaleDateString("vi-VN")} qua ${currentTuitionBill.paymentMethod === "CASH" ? "Tiền mặt" : "VietQR"}`
+                          : "Đã hoàn tất học phí kỳ này")
+                      : `Hạn đóng học phí: ${currentTuitionBill?.dueDate || activeStudent?.tuitionDueDate || getDefaultTuitionDueDate(currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth)}`}
                   </span>
                 </div>
 
@@ -1780,51 +1847,67 @@ export default function ParentPortal() {
                   </div>
                 )}
 
-                {/* Chi tiết tính học phí theo số buổi */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5 mb-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Số buổi học trong tháng:</span>
-                    <strong className="text-indigo-900 font-mono font-bold">
-                      {currentTuitionBill?.lessonCount || 8} buổi
-                    </strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Đơn giá 1 buổi học:</span>
-                    <strong className="text-slate-800 font-mono">
-                      {(currentTuitionBill?.feePerLesson || 200000).toLocaleString("vi-VN")} đ/buổi
-                    </strong>
-                  </div>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-                    <span className="text-slate-600 font-semibold">Công thức tính học phí:</span>
-                    <span className="font-mono text-slate-700">
-                      {currentTuitionBill?.lessonCount || 8} buổi × {(currentTuitionBill?.feePerLesson || 200000).toLocaleString("vi-VN")} đ
-                    </span>
-                  </div>
-                  {/* Khoản Phụ thu (+) nếu có */}
-                  {((currentTuitionBill?.surcharge && currentTuitionBill.surcharge > 0) || ((currentTuitionBill?.adjustmentAmount || 0) > 0 && !currentTuitionBill?.surcharge)) && (
-                    <div className="flex items-center justify-between pt-1 border-t border-emerald-200 text-emerald-900 text-xs">
-                      <span>+ Phụ thu ({currentTuitionBill?.surchargeNote || currentTuitionBill?.notes || "Khoản phát sinh"}):</span>
-                      <strong className="font-mono text-emerald-700">
-                        +{(currentTuitionBill?.surcharge || currentTuitionBill?.adjustmentAmount || 0).toLocaleString("vi-VN")} đ
-                      </strong>
+                {(() => {
+                  const billingM = currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth();
+                  const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
+                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const effLessons = currentTuitionBill?.lessonCount || fallbackLessons;
+                  const effFee = currentTuitionBill?.feePerLesson || fallbackFee;
+                  const effBreakdown = computeStudentTuitionBreakdown({
+                    lessonCount: effLessons,
+                    feePerLesson: effFee,
+                    discountPercent: currentTuitionBill?.discountPercent ?? activeStudent?.discountPercent,
+                    surcharge: currentTuitionBill?.surcharge || 0,
+                  });
+                  const finalAmt = currentTuitionBill ? currentTuitionBill.finalAmount : effBreakdown.finalAmount;
+
+                  return (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5 mb-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">Số buổi học trong tháng:</span>
+                        <strong className="text-indigo-900 font-mono font-bold">
+                          {effLessons} buổi
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">Đơn giá 1 buổi học:</span>
+                        <strong className="text-slate-800 font-mono">
+                          {effFee.toLocaleString("vi-VN")} đ/buổi
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                        <span className="text-slate-600 font-semibold">Công thức tính học phí:</span>
+                        <span className="font-mono text-slate-700">
+                          {effLessons} buổi × {effFee.toLocaleString("vi-VN")} đ
+                        </span>
+                      </div>
+                      {/* Khoản Phụ thu (+) nếu có */}
+                      {((currentTuitionBill?.surcharge && currentTuitionBill.surcharge > 0) || ((currentTuitionBill?.adjustmentAmount || 0) > 0 && !currentTuitionBill?.surcharge)) && (
+                        <div className="flex items-center justify-between pt-1 border-t border-emerald-200 text-emerald-900 text-xs">
+                          <span>+ Phụ thu ({currentTuitionBill?.surchargeNote || currentTuitionBill?.notes || "Khoản phát sinh"}):</span>
+                          <strong className="font-mono text-emerald-700">
+                            +{(currentTuitionBill?.surcharge || currentTuitionBill?.adjustmentAmount || 0).toLocaleString("vi-VN")} đ
+                          </strong>
+                        </div>
+                      )}
+                      {/* Khoản Giảm trừ (-) nếu có */}
+                      {((currentTuitionBill?.discount && currentTuitionBill.discount > 0) || (!currentTuitionBill && effBreakdown.discount > 0) || ((currentTuitionBill?.adjustmentAmount || 0) < 0 && !currentTuitionBill?.discount)) && (
+                        <div className="flex items-center justify-between pt-1 border-t border-rose-200 text-rose-900 text-xs">
+                          <span>- Giảm trừ ({currentTuitionBill?.discountNote || activeStudent?.fixedDiscountNote || `Giảm ${effBreakdown.discountPercent}%/buổi`}):</span>
+                          <strong className="font-mono text-rose-700">
+                            -{(currentTuitionBill?.discount ?? (currentTuitionBill ? Math.abs(currentTuitionBill.adjustmentAmount || 0) : effBreakdown.discount)).toLocaleString("vi-VN")} đ
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-300 font-bold">
+                        <span className="text-slate-900">Tổng học phí kỳ này:</span>
+                        <strong className="font-mono text-emerald-800 text-sm">
+                          {finalAmt.toLocaleString("vi-VN")} đ
+                        </strong>
+                      </div>
                     </div>
-                  )}
-                  {/* Khoản Giảm trừ (-) nếu có */}
-                  {((currentTuitionBill?.discount && currentTuitionBill.discount > 0) || ((currentTuitionBill?.adjustmentAmount || 0) < 0 && !currentTuitionBill?.discount)) && (
-                    <div className="flex items-center justify-between pt-1 border-t border-rose-200 text-rose-900 text-xs">
-                      <span>- Giảm trừ / Học bổng ({currentTuitionBill?.discountNote || currentTuitionBill?.notes || "Học bổng / Ưu đãi"}):</span>
-                      <strong className="font-mono text-rose-700">
-                        -{(currentTuitionBill?.discount || Math.abs(currentTuitionBill?.adjustmentAmount || 0)).toLocaleString("vi-VN")} đ
-                      </strong>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-300 font-bold">
-                    <span className="text-slate-900">Tổng học phí kỳ này:</span>
-                    <strong className="font-mono text-emerald-800 text-sm">
-                      {(currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000).toLocaleString("vi-VN")} đ
-                    </strong>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div className="text-xs text-slate-600 space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -1839,7 +1922,25 @@ export default function ParentPortal() {
               </div>
 
               <button
-                onClick={() => setIsQrModalOpen(true)}
+                onClick={() => {
+                  const billingM = currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth();
+                  const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
+                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const amt = currentTuitionBill
+                    ? currentTuitionBill.finalAmount
+                    : computeStudentTuitionBreakdown({
+                        lessonCount: fallbackLessons,
+                        feePerLesson: fallbackFee,
+                        discountPercent: activeStudent?.discountPercent,
+                      }).finalAmount;
+                  setSelectedPackage({
+                    monthLabel: debtSummary && debtSummary.isMultiMonthDebt ? "CONSOLIDATED_DEBT" : billingM,
+                    amount: debtSummary && debtSummary.isMultiMonthDebt ? debtSummary.totalDebtAmount : amt,
+                    label: debtSummary && debtSummary.isMultiMonthDebt ? `Gộp ${debtSummary.debtMonthsCount} Tháng Nợ` : `Học Phí ${billingM}`,
+                    sub: `${(debtSummary && debtSummary.isMultiMonthDebt ? debtSummary.totalDebtAmount : amt).toLocaleString("vi-VN")} đ`,
+                  });
+                  setIsQrModalOpen(true);
+                }}
                 className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-2"
               >
                 <QrCode className="w-4 h-4" />
@@ -1908,33 +2009,54 @@ export default function ParentPortal() {
                 Chọn kỳ đóng học phí:
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  ...(debtSummary && debtSummary.isMultiMonthDebt ? [{
-                    monthLabel: "CONSOLIDATED_DEBT",
-                    amount: debtSummary.totalDebtAmount,
-                    label: `🌟 Gộp ${debtSummary.debtMonthsCount} Tháng Nợ`,
-                    sub: `${formatVND(debtSummary.totalDebtAmount)}`,
-                    highlight: true,
-                  }] : []),
-                  { 
-                    monthLabel: "Tháng 11/2026", 
-                    amount: currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000, 
-                    label: "Tháng 11/2026", 
-                    sub: `${(currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000).toLocaleString("vi-VN")} đ` 
-                  },
-                  { 
-                    monthLabel: "Tháng 12/2026", 
-                    amount: currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000, 
-                    label: "Tháng 12/2026", 
-                    sub: `${(currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000).toLocaleString("vi-VN")} đ` 
-                  },
-                  { 
-                    monthLabel: "Quý (3 Tháng: T11-T01)", 
-                    amount: Math.round((currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000) * 3 * 0.95), 
-                    label: "Đóng 3 Tháng", 
-                    sub: `${Math.round((currentTuitionBill?.finalAmount || activeStudent?.monthlyFee || 1600000) * 3 * 0.95).toLocaleString("vi-VN")} đ (-5%)` 
-                  },
-                ].map((pkg) => (
+                {(() => {
+                  const billingM = currentTuitionBill?.billingMonth || activeStudent?.currentBillingMonth || getCurrentBillingMonth();
+                  const monthOpts = getBillingMonthOptions();
+                  const nextM = monthOpts[1]?.value || billingM;
+                  const fallbackLessons = activeClass ? calculateMonthLessons(billingM, activeClass.schedules).lessonCount || 8 : 8;
+                  const fallbackFee = activeStudent?.feePerLesson || activeClass?.feePerLesson || 200000;
+                  const baseAmt = currentTuitionBill
+                    ? currentTuitionBill.finalAmount
+                    : computeStudentTuitionBreakdown({
+                        lessonCount: fallbackLessons,
+                        feePerLesson: fallbackFee,
+                        discountPercent: activeStudent?.discountPercent,
+                      }).finalAmount;
+                  const nextLessons = activeClass ? calculateMonthLessons(nextM, activeClass.schedules).lessonCount || 8 : 8;
+                  const nextAmt = computeStudentTuitionBreakdown({
+                    lessonCount: nextLessons,
+                    feePerLesson: currentTuitionBill?.feePerLesson || fallbackFee,
+                    discountPercent: activeStudent?.discountPercent,
+                  }).finalAmount;
+
+                  const packages = [
+                    ...(debtSummary && debtSummary.isMultiMonthDebt ? [{
+                      monthLabel: "CONSOLIDATED_DEBT",
+                      amount: debtSummary.totalDebtAmount,
+                      label: `🌟 Gộp ${debtSummary.debtMonthsCount} Tháng Nợ`,
+                      sub: `${formatVND(debtSummary.totalDebtAmount)}`,
+                      highlight: true,
+                    }] : []),
+                    { 
+                      monthLabel: billingM, 
+                      amount: baseAmt, 
+                      label: billingM, 
+                      sub: `${baseAmt.toLocaleString("vi-VN")} đ` 
+                    },
+                    { 
+                      monthLabel: nextM, 
+                      amount: nextAmt, 
+                      label: nextM, 
+                      sub: `${nextAmt.toLocaleString("vi-VN")} đ` 
+                    },
+                    { 
+                      monthLabel: `Quý (3 Tháng từ ${billingM})`, 
+                      amount: Math.round(baseAmt * 3 * 0.95), 
+                      label: "Đóng 3 Tháng", 
+                      sub: `${Math.round(baseAmt * 3 * 0.95).toLocaleString("vi-VN")} đ (-5%)` 
+                    },
+                  ];
+                  return packages.map((pkg) => (
                   <button
                     key={pkg.monthLabel}
                     type="button"
@@ -1950,7 +2072,8 @@ export default function ParentPortal() {
                     <div className="text-xs font-bold">{pkg.label}</div>
                     <div className="text-[10px] mt-0.5 opacity-90 font-mono">{pkg.sub}</div>
                   </button>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
 
@@ -1958,16 +2081,16 @@ export default function ParentPortal() {
             <div className="p-4 bg-gradient-to-b from-amber-50/60 to-white rounded-2xl border border-amber-200 text-center space-y-3">
               <div className="w-48 h-48 mx-auto bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=247-NAPAS-VIETINBANK-0987654321-AMOUNT-${selectedPackage.amount}-HP-${activeStudent?.studentCode}`}
+                  src={`https://img.vietqr.io/image/${CENTER_BANK_CONFIG.bankBinOrCode}-${CENTER_BANK_CONFIG.accountNumber}-compact.png?amount=${selectedPackage.amount}&addInfo=${encodeURIComponent(`HP ${selectedPackage.monthLabel.replace(/\s+/g, "").toUpperCase()} ${activeStudent?.studentCode || ""}`)}&accountName=${encodeURIComponent(CENTER_BANK_CONFIG.accountHolder)}`}
                   alt="VietQR Code"
                   className="w-40 h-40 object-contain rounded-lg"
                 />
               </div>
 
               <div className="text-xs space-y-1 text-slate-700 font-medium">
-                <div>Ngân hàng: <strong className="text-slate-900">MB Bank (Ngân hàng Quân Đội)</strong></div>
-                <div>Số tài khoản: <strong className="font-mono text-amber-700 text-sm">0987 654 321</strong></div>
-                <div>Chủ tài khoản: <strong className="text-slate-900">TRUNG TAM TIENG ANH MS DUNG SHINY</strong></div>
+                <div>Ngân hàng: <strong className="text-slate-900">{CENTER_BANK_CONFIG.bankName}</strong></div>
+                <div>Số tài khoản: <strong className="font-mono text-amber-700 text-sm">{CENTER_BANK_CONFIG.accountDisplay}</strong></div>
+                <div>Chủ tài khoản: <strong className="text-slate-900">{CENTER_BANK_CONFIG.accountHolder}</strong></div>
                 <div>Số tiền: <strong className="font-mono text-emerald-700 text-sm">{selectedPackage.amount.toLocaleString("vi-VN")} đ</strong></div>
                 <div>Cú pháp: <strong className="font-mono bg-slate-100 px-2 py-0.5 rounded text-amber-800">HP {selectedPackage.monthLabel.replace(/\s+/g, "").toUpperCase()} {(activeStudent?.fullName || "").replace(/\s+/g, "")} {activeStudent?.studentCode || ""}</strong></div>
               </div>
@@ -2278,10 +2401,11 @@ export default function ParentPortal() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl text-xs shadow-xs hover:opacity-95 transition flex items-center justify-center gap-1.5"
+                  disabled={isUploadingHomework}
+                  className="flex-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl text-xs shadow-xs hover:opacity-95 disabled:opacity-60 transition flex items-center justify-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Gửi Bài Tập Cho Thầy Cô</span>
+                  <span>{isUploadingHomework ? "Đang tải tệp bài tập lên..." : "Gửi Bài Tập Cho Thầy Cô"}</span>
                 </button>
               </div>
             </form>

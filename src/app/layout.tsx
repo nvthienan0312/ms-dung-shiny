@@ -11,13 +11,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Ms. Dung Shiny - Quản Lý Trung Tâm Tiếng Anh",
-  description: "Hệ thống quản lý đào tạo, thời khóa biểu và sổ liên lạc điện tử Ms. Dung Shiny",
+  title: "Shiny English - Quản Lý Trung Tâm Tiếng Anh",
+  description: "Hệ thống quản lý đào tạo, thời khóa biểu và sổ liên lạc điện tử Shiny English",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Ms. Dung Shiny",
+    title: "Shiny English",
   },
   icons: {
     icon: [

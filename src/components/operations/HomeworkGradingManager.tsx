@@ -66,6 +66,7 @@ export default function HomeworkGradingManager({
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string | null>(null);
   const [resolvedWorkbookUrl, setResolvedWorkbookUrl] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(false);
+  const [videoPlayError, setVideoPlayError] = useState<boolean>(false);
 
   // Modal chỉnh sửa & gửi Zalo cho 1 phụ huynh (Báo điểm hoặc nhắc bài)
   const [editZaloModal, setEditZaloModal] = useState<{
@@ -90,32 +91,50 @@ export default function HomeworkGradingManager({
   const isAssistant = userRole === "ASSISTANT";
 
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === userRole) || staff[0] || { id: "", fullName: userRole === "TEACHER" ? "Giáo viên" : "Trợ giảng", phone: "", role: userRole };
+    const matched = staff.find((s) => s.id === currentStaffId);
+    if (matched) return matched;
+    return {
+      id: "",
+      fullName: userRole === "TEACHER" ? "Giáo viên" : userRole === "ASSISTANT" ? "Trợ giảng" : "Quản trị viên",
+      phone: "",
+      role: userRole,
+    };
   }, [staff, currentStaffId, userRole]);
 
   // Giáo viên + Trợ giảng kiểm soát lớp mình phụ trách chính. KỂ CẢ CÓ người dạy thay, GV và TA chính vẫn chấm và theo dõi
   const accessibleClasses = useMemo(() => {
     if (userRole === "ADMIN") return classes;
-    if (!activeStaff.id) return classes;
+    if (!activeStaff.id) return [];
     if (userRole === "TEACHER") {
-      const myClasses = classes.filter((c) => c.teacherId === activeStaff.id || c.schedules.some((s) => s.teacherId === activeStaff.id));
-      return myClasses.length > 0 ? myClasses : classes;
+      return classes.filter((c) => c.teacherId === activeStaff.id || c.schedules.some((s) => s.teacherId === activeStaff.id));
     }
     // userRole === "ASSISTANT"
-    const myClasses = classes.filter((c) => c.assistantId === activeStaff.id || c.schedules.some((s) => s.assistantId === activeStaff.id));
-    return myClasses.length > 0 ? myClasses : classes;
+    return classes.filter((c) => c.assistantId === activeStaff.id || c.schedules.some((s) => s.assistantId === activeStaff.id));
   }, [classes, userRole, activeStaff]);
+
+  // Tổng hợp số lượng BTVN đã hoàn thành trên tất cả các lớp được phân công
+  const overallCompletionStats = useMemo(() => {
+    const classIds = new Set(accessibleClasses.map((c) => c.id));
+    const relevantSubs = (userRole === "ADMIN" ? homeworkSubmissions : homeworkSubmissions.filter((s) => classIds.has(s.classId)));
+    const graded = relevantSubs.filter((s) => s.status === "GRADED").length;
+    const pending = relevantSubs.filter((s) => s.status === "PENDING_GRADING").length;
+    const distinctStudents = new Set(relevantSubs.map((s) => s.studentId)).size;
+    return { total: relevantSubs.length, graded, pending, distinctStudents };
+  }, [accessibleClasses, homeworkSubmissions, userRole]);
 
   // Tự động chọn lớp đầu tiên trong danh sách phụ trách chính
   useEffect(() => {
     if (accessibleClasses.length > 0 && !accessibleClasses.some((c) => c.id === selectedClassId)) {
       setSelectedClassId(accessibleClasses[0].id);
+    } else if (accessibleClasses.length === 0 && selectedClassId) {
+      setSelectedClassId("");
     }
   }, [accessibleClasses, selectedClassId]);
 
   const currentClass = useMemo(() => {
-    return classes.find((c) => c.id === selectedClassId) || accessibleClasses[0] || classes[0];
-  }, [classes, selectedClassId, accessibleClasses]);
+    if (accessibleClasses.length === 0) return undefined;
+    return accessibleClasses.find((c) => c.id === selectedClassId) || accessibleClasses[0];
+  }, [selectedClassId, accessibleClasses]);
 
   const classStudents = useMemo(() => {
     if (!currentClass) return [];
@@ -153,6 +172,7 @@ export default function HomeworkGradingManager({
       }
 
       setIsLoadingMedia(true);
+      setVideoPlayError(false);
       try {
         let nextMediaUrl: string | null =
           activeGradingItem.mediaUrl || activeGradingItem.attachmentFileUrl || null;
@@ -231,7 +251,7 @@ export default function HomeworkGradingManager({
       studentName: activeGradingItem.studentName,
       parentName,
       parentPhone,
-      className: currentClass.name,
+      className: currentClass?.name ?? "",
       title: `Báo Kết Quả Kiểm Tra BTVN Zalo: ${activeGradingItem.studentName}`,
       initialContent: msg,
       templateBadge: "Kiểm Tra BTVN",
@@ -257,7 +277,7 @@ export default function HomeworkGradingManager({
       studentName: sub.studentName,
       parentName,
       parentPhone,
-      className: currentClass.name,
+      className: currentClass?.name ?? "",
       title: `Báo Kết Quả Kiểm Tra BTVN Zalo: ${sub.studentName}`,
       initialContent: msg,
       templateBadge: "Kiểm Tra BTVN",
@@ -273,7 +293,7 @@ export default function HomeworkGradingManager({
       studentName,
       parentName,
       activeStaff.fullName,
-      currentClass.name,
+      currentClass?.name ?? "",
       "Bài tập về nhà Unit 4",
       "22:00 hôm nay"
     );
@@ -283,7 +303,7 @@ export default function HomeworkGradingManager({
       studentName,
       parentName,
       parentPhone,
-      className: currentClass.name,
+      className: currentClass?.name ?? "",
       title: `Nhắc Nộp BTVN Zalo: ${studentName}`,
       initialContent: msg,
       templateBadge: "Nhắc Nộp BTVN",
@@ -302,7 +322,7 @@ export default function HomeworkGradingManager({
         st.fullName,
         st.parentName || "Phụ huynh",
         activeStaff.fullName,
-        currentClass.name,
+        currentClass?.name ?? "",
         "Bài tập về nhà Unit 4",
         "22:00 hôm nay"
       );
@@ -312,7 +332,7 @@ export default function HomeworkGradingManager({
         studentName: st.fullName,
         parentName: st.parentName || "Phụ huynh",
         parentPhone: st.parentPhone || "",
-        className: currentClass.name,
+        className: currentClass?.name ?? "",
         messageType: "HOMEWORK_REMINDER",
         title: `Nhắc Nộp BTVN: ${st.fullName}`,
         content: msg,
@@ -406,9 +426,9 @@ export default function HomeworkGradingManager({
         {/* Stats */}
         <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-slate-600">Tiến độ nộp bài:</span>
-            <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 font-bold font-mono">
-              Đã nộp: {totalSub}/{classStudents.length} HS
+            <span className="font-semibold text-slate-600">Tiến độ lớp {currentClass.name}:</span>
+            <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 font-bold font-mono border border-indigo-200">
+              Tổng bài đã nộp: {totalSub} bài ({submittedStudentIds.size}/{classStudents.length} HS)
             </span>
             <span className={`px-2 py-0.5 rounded-lg font-bold font-mono ${unsubmittedStudents.length > 0 ? "bg-rose-50 text-rose-800 border border-rose-200" : "bg-slate-50 text-slate-600"}`}>
               Chưa nộp: {unsubmittedStudents.length} HS
@@ -418,6 +438,9 @@ export default function HomeworkGradingManager({
             </span>
             <span className="px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 font-bold font-mono">
               Chờ TA chấm: {pendingCount} bài
+            </span>
+            <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-amber-300 font-bold font-mono">
+              Tổng hoàn thành ({accessibleClasses.length} lớp): {overallCompletionStats.total} bài ({overallCompletionStats.distinctStudents} HS)
             </span>
           </div>
 
@@ -450,7 +473,7 @@ export default function HomeworkGradingManager({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
             <Video className="w-4 h-4 text-blue-600" />
-            <span>Bài Tập: {currentClass.name} - Unit 4 (Video/Workbook)</span>
+            <span>Bài Tập Về Nhà: Lớp {currentClass.name}</span>
           </div>
 
           {/* Subtabs: Tất cả / Đã nộp / Chưa nộp */}
@@ -752,15 +775,31 @@ export default function HomeworkGradingManager({
                       );
                     }
                     return (
-                      <video
-                        controls
-                        playsInline
-                        preload="metadata"
-                        src={resolvedMediaUrl}
-                        className="w-full max-h-72 rounded-xl bg-black"
-                      >
-                        Trình duyệt không hỗ trợ phát video trực tiếp.
-                      </video>
+                      <div className="space-y-2">
+                        <video
+                          key={resolvedMediaUrl}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          src={resolvedMediaUrl}
+                          onError={() => setVideoPlayError(true)}
+                          className="w-full max-h-72 rounded-xl bg-black"
+                        >
+                          Trình duyệt không hỗ trợ phát video trực tiếp.
+                        </video>
+                        {videoPlayError && (
+                          <div className="p-2.5 bg-amber-950/60 border border-amber-500/40 rounded-lg text-[11px] text-amber-200 flex items-center justify-between gap-2">
+                            <span>Định dạng video chưa được trình duyệt phát trực tiếp. Vui lòng tải tệp về để xem.</span>
+                            <a
+                              href={resolvedMediaUrl}
+                              download={activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "video_btvn"}
+                              className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-bold shrink-0"
+                            >
+                              Tải về
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     );
                   })()
                 ) : (

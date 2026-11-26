@@ -46,6 +46,8 @@ export interface StaffItem {
 
 export type TuitionStatus = "PAID" | "UNPAID" | "OVERDUE";
 
+export const MAKEUP_SESSION_FIXED_PAY = 120000;
+
 export interface StudentItem {
   id: string;
   studentCode: string;
@@ -61,8 +63,8 @@ export interface StudentItem {
   className?: string;
   monthlyFee?: number;          // Tương thích ngược
   feePerLesson?: number;        // Học phí theo buổi (VNĐ/buổi, VD: 200.000)
-  fixedDiscount?: number;       // Giảm trừ học phí cố định hàng tháng (VNĐ)
-  fixedDiscountNote?: string;   // Lý do giảm trừ cố định (VD: "Ưu đãi anh chị em học cùng")
+  discountPercent?: number;     // % Giảm trừ học phí theo buổi (0 - 100)
+  fixedDiscountNote?: string;   // Lý do giảm trừ (VD: "Ưu đãi anh chị em học cùng")
   tuitionStatus: TuitionStatus; // "PAID" (Đã đóng tháng này) | "UNPAID" (Chưa đóng) | "OVERDUE" (Quá hạn)
   currentBillingMonth: string;  // Kỳ học phí hiện tại (ví dụ: "Tháng 11/2026")
   lastPaidMonth?: string;       // Tháng nộp gần nhất (ví dụ: "Tháng 11/2026")
@@ -393,6 +395,7 @@ export interface StudentTuitionBill {
   calculatedAmount: number;      // Số buổi x Đơn giá 1 buổi
   surcharge?: number;            // Khoản Phụ thu / Cộng thêm (+) >= 0 (giáo trình, đồng phục, học liệu...)
   surchargeNote?: string;        // Lý do phụ thu
+  discountPercent?: number;      // % Giảm trừ học phí theo buổi (0 - 100)
   discount?: number;             // Khoản Giảm trừ / Học bổng (-) >= 0 (học bổng, ưu đãi 2 con...)
   discountNote?: string;         // Lý do giảm trừ
   adjustmentAmount: number;      // Khoản điều chỉnh gộp = (surcharge || 0) - (discount || 0)
@@ -705,6 +708,16 @@ export function getUniqueClassTheme(classItem: ClassItem, allClasses: ClassItem[
   return map.get(classItem.id) || CLASS_THEMES[0];
 }
 
+export const CENTER_BANK_CONFIG = {
+  bankName: "MB Bank (Ngân hàng Quân Đội)",
+  bankShortName: "MB Bank",
+  bankBinOrCode: "MB",
+  accountNumber: "0964645174",
+  accountDisplay: "0964 645 174",
+  accountHolder: "NGUYEN THI DUNG",
+  hotline: "0964.645.174",
+} as const;
+
 export const INITIAL_CLASSROOMS: ClassroomItem[] = [];
 
 export const INITIAL_COURSES: CourseItem[] = [];
@@ -754,7 +767,7 @@ export interface ZaloOAConfig {
 
 export const INITIAL_ZALO_OA_CONFIG: ZaloOAConfig = {
   oaId: "",
-  oaName: "Ms. Dung Shiny English Center (Zalo OA)",
+  oaName: "Shiny English Center (Zalo OA)",
   appId: "",
   secretKey: "",
   accessToken: "",
@@ -874,7 +887,7 @@ export const INITIAL_ZALO_SESSIONS: Record<ZaloAccountRole, ZaloSessionState> = 
 };
 
 export const DEFAULT_ZALO_MASTER_TEMPLATES: ZaloMasterTemplates = {
-  tuitionFirstOfMonth: `📢 THÔNG BÁO HỌC PHÍ THÁNG {month} - MS. DUNG SHINY
+  tuitionFirstOfMonth: `📢 THÔNG BÁO HỌC PHÍ THÁNG {month} - SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Trung tâm xin gửi thông báo học phí định kỳ tháng {month} của con:
@@ -892,7 +905,7 @@ Trung tâm xin gửi thông báo học phí định kỳ tháng {month} của co
 Trung tâm xin chân thành cảm ơn Ba Mẹ!
 Hotline hỗ trợ: {hotline}`,
 
-  tuitionDueDate: `⏰ NHẮC HẸN HẠN ĐÓNG HỌC PHÍ THÁNG {month} - MS. DUNG SHINY
+  tuitionDueDate: `⏰ NHẮC HẸN HẠN ĐÓNG HỌC PHÍ THÁNG {month} - SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Hôm nay là cận hạn hoàn thành học phí tháng {month} (Hạn chót: Ngày {dueDate}).
@@ -904,7 +917,7 @@ Hôm nay là cận hạn hoàn thành học phí tháng {month} (Hạn chót: Ng
 Quý Ba Mẹ vui lòng thanh toán sớm để trung tâm chốt danh sách sĩ số và giáo trình học tập của con nhé ạ.
 Hotline: {hotline}`,
 
-  tuitionOverdue: `⚠️ THÔNG BÁO HỌC PHÍ QUÁ HẠN THÁNG {month} - MS. DUNG SHINY
+  tuitionOverdue: `⚠️ THÔNG BÁO HỌC PHÍ QUÁ HẠN THÁNG {month} - SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Hệ thống ghi nhận học phí tháng {month} của con hiện đã quá hạn thanh toán ({dueDate}):
@@ -915,7 +928,7 @@ Hệ thống ghi nhận học phí tháng {month} của con hiện đã quá h�
 Ba Mẹ vui lòng sắp xếp hoàn tất học phí trong hôm nay hoặc liên hệ hotline {hotline} để trung tâm hỗ trợ kịp thời.
 Cảm ơn Quý Ba Mẹ!`,
 
-  tuitionMultiMonth: `🚨 THÔNG BÁO CÔNG NỢ HỌC PHÍ LŨY KẾ - MS. DUNG SHINY
+  tuitionMultiMonth: `🚨 THÔNG BÁO CÔNG NỢ HỌC PHÍ LŨY KẾ - SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Trung tâm xin thông báo tổng hợp công nợ học phí của con tính đến hiện tại:
@@ -926,7 +939,7 @@ Trung tâm xin thông báo tổng hợp công nợ học phí của con tính đ
 Quý Ba Mẹ vui lòng thanh toán gộp toàn bộ các kỳ nợ hoặc liên hệ trực tiếp Quản lý trung tâm qua hotline: {hotline} để giải quyết dứt điểm.
 Trân trọng cảm ơn Ba Mẹ!`,
 
-  attendanceAbsent: `📢 THÔNG BÁO TÌNH HÌNH ĐIỂM DANH - MS. DUNG SHINY
+  attendanceAbsent: `📢 THÔNG BÁO TÌNH HÌNH ĐIỂM DANH - SHINY ENGLISH
 
 Kính gửi Phụ huynh bé {studentName},
 Hôm nay (ngày {dateStr}), lớp {className} đã bắt đầu ca học nhưng trung tâm chưa thấy bé {studentName} có mặt tại lớp.
@@ -938,7 +951,7 @@ Hôm nay (ngày {dateStr}), lớp {className} đã bắt đầu ca học nhưng 
 💡 Quý Phụ huynh yên tâm: Học phí của con được bảo lưu bài giảng đầy đủ. Trung tâm sẽ cập nhật quyền lợi học bù trong tháng và sắp xếp lịch ôn tập bổ trợ kiến thức cho con sớm nhất.
 Hotline: {hotline}`,
 
-  attendanceGroupReport: `📢 [MS. DUNG SHINY] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP
+  attendanceGroupReport: `📢 [SHINY ENGLISH] - BÁO CÁO TÌNH HÌNH ĐIỂM DANH LỚP
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🏫 Lớp học: {className}
 📅 Ngày học: {dateStr}
@@ -958,7 +971,7 @@ Hotline: {hotline}`,
 Hotline hỗ trợ: {hotline}
 Trung tâm xin chân thành cảm ơn Quý Phụ Huynh! ❤️`,
 
-  classLogParent: `[MS. DUNG SHINY ENGLISH CENTER]
+  classLogParent: `[SHINY ENGLISH CENTER]
 THÔNG BÁO BUỔI HỌC & BTVN NGÀY {dateStr}
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
@@ -975,7 +988,7 @@ Kính gửi Ba Mẹ bé {studentName} ({className}),
 {attachmentFileSection}
 Ba Mẹ đồng hành và nhắc con hoàn thành bài tập nộp trên Sổ liên lạc nhé ạ!`,
 
-  classLogGroup: `📢 [MS. DUNG SHINY ENGLISH CENTER] - THÔNG BÁO LỚP {className}
+  classLogGroup: `📢 [SHINY ENGLISH CENTER] - THÔNG BÁO LỚP {className}
 📅 BUỔI HỌC NGÀY: {dateStr}
 
 Kính gửi Quý Phụ Huynh Lớp {className},
@@ -993,7 +1006,7 @@ Kính gửi Quý Phụ Huynh Lớp {className},
 💡 Quý Ba Mẹ vui lòng nhắc nhở các con nộp bài trên Sổ liên lạc trước hạn nộp nhé ạ.
 Thầy cô xin chân thành cảm ơn Quý Ba Mẹ! ❤️`,
 
-  makeupSurvey: `📢 KHẢO SÁT LỊCH HỌC BÙ - TRUNG TÂM TIẾNG ANH MS. DUNG SHINY
+  makeupSurvey: `📢 KHẢO SÁT LỊCH HỌC BÙ - TRUNG TÂM TIẾNG ANH SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Trong tháng {month}, hệ thống ghi nhận con có {absentCount} buổi vắng (ngày {absentDates}).
@@ -1006,7 +1019,7 @@ Trong tháng {month}, hệ thống ghi nhận con có {absentCount} buổi vắn
 Ba Mẹ phản hồi lại tin nhắn này khung giờ thuận tiện nhất để trung tâm chốt lịch và thông báo phòng học cho con nhé ạ.
 Hotline: {hotline}`,
 
-  makeupSchedule: `📢 THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC - MS. DUNG SHINY
+  makeupSchedule: `📢 THÔNG BÁO LỊCH HỌC BÙ CHÍNH THỨC - SHINY ENGLISH
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Trung tâm xin gửi lịch ca học bù đã được sắp xếp cho con:
@@ -1021,7 +1034,7 @@ Trung tâm xin gửi lịch ca học bù đã được sắp xếp cho con:
 Ba Mẹ cho con đi học đúng giờ và mang theo đầy đủ sách vở nhé ạ.
 Hotline: {hotline}`,
 
-  monthlyExam: `[MS. DUNG SHINY] BÁO CÁO KẾT QUẢ BÀI THI {month}
+  monthlyExam: `[SHINY ENGLISH] BÁO CÁO KẾT QUẢ BÀI THI {month}
 
 Kính gửi Ba Mẹ bé {studentName} ({className}),
 Cô {teacherName} xin gửi kết quả bài thi đánh giá năng lực tháng {month} của con:
@@ -1037,7 +1050,7 @@ export const INITIAL_ZALO_ACCOUNTS: ZaloAccountConfig[] = [
     id: "zalo-admin",
     role: "ADMIN",
     accountType: "CENTER_HOTLINE",
-    accountName: "Ms. Dung Shiny (Hotline Trung Tâm)",
+    accountName: "Shiny English (Hotline Trung Tâm)",
     phoneNumber: "0964645174",
     isConnected: false,
     connectedAt: undefined,

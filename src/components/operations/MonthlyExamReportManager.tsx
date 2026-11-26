@@ -28,14 +28,15 @@ import {
 import EditZaloMessageModal from "@/components/common/EditZaloMessageModal";
 import ZaloBatchQueueModal, { ZaloQueueItem } from "@/components/common/ZaloBatchQueueModal";
 import { generateMonthlyExamReportZaloMessage } from "@/utils/zaloHelper";
+import { getCurrentBillingMonth, getBillingMonthOptions } from "@/utils/dateHelper";
 
 export interface MonthlyExamReportManagerProps {
-  currentStaffId?: string; // id của GV ("staff-t1" - Cô Sarah Johnson)
+  currentStaffId?: string;
   userRole?: "TEACHER" | "ADMIN";
 }
 
 export default function MonthlyExamReportManager({
-  currentStaffId = "staff-t1",
+  currentStaffId = "",
   userRole = "TEACHER",
 }: MonthlyExamReportManagerProps) {
   const { 
@@ -49,8 +50,8 @@ export default function MonthlyExamReportManager({
 
   const themeMap = useMemo(() => buildClassThemeMap(classes), [classes]);
   const [selectedClassId, setSelectedClassId] = useState<string>("");
-  const [selectedMonth, setSelectedMonth] = useState<string>("Tháng 10/2026");
-  const [examTitle, setExamTitle] = useState<string>("Bài Kiểm Tra Định Kỳ Tháng 10 - Cambridge Flyers Mock Test 01");
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentBillingMonth());
+  const [examTitle, setExamTitle] = useState<string>(() => `Bài Kiểm Tra Định Kỳ ${getCurrentBillingMonth()}`);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -86,28 +87,29 @@ export default function MonthlyExamReportManager({
   const [listeningScore, setListeningScore] = useState<number>(9.0);
   const [speakingScore, setSpeakingScore] = useState<number>(9.5);
   const [readingWritingScore, setReadingWritingScore] = useState<number>(8.5);
-  const [pdfFileName, setPdfFileName] = useState<string>("Bai_Thi_Dinh_Ky.pdf");
-  const [pdfFileSize, setPdfFileSize] = useState<string>("2.1 MB");
+  const [pdfFileName, setPdfFileName] = useState<string>("");
+  const [pdfFileSize, setPdfFileSize] = useState<string>("");
   const [teacherFeedback, setTeacherFeedback] = useState<string>("");
   const [strengths, setStrengths] = useState<string>("");
   const [areasForImprovement, setAreasForImprovement] = useState<string>("");
 
   const activeStaff = useMemo(() => {
-    return staff.find((s) => s.id === currentStaffId) || staff.find((s) => s.role === "TEACHER") || staff[0] || { id: "", fullName: "Giáo viên", role: "TEACHER" };
+    return staff.find((s) => s.id === currentStaffId) || { id: "", fullName: "Giáo viên", phone: "", role: "TEACHER" as const };
   }, [staff, currentStaffId]);
 
   const relevantClasses = useMemo(() => {
     if (userRole === "ADMIN") return classes;
-    if (!activeStaff.id) return classes;
+    if (!activeStaff.id) return [];
     return classes.filter((cls) => cls.teacherId === activeStaff.id || cls.schedules.some((s) => s.teacherId === activeStaff.id));
   }, [classes, userRole, activeStaff]);
 
   const currentClass = useMemo(() => {
+    if (relevantClasses.length === 0) return undefined;
     if (selectedClassId) {
-      return classes.find((c) => c.id === selectedClassId) || relevantClasses[0] || classes[0];
+      return relevantClasses.find((c) => c.id === selectedClassId) || relevantClasses[0];
     }
-    return relevantClasses[0] || classes[0];
-  }, [classes, selectedClassId, relevantClasses]);
+    return relevantClasses[0];
+  }, [selectedClassId, relevantClasses]);
 
   const classStudents = useMemo(() => {
     if (!currentClass) return [];
@@ -384,12 +386,20 @@ export default function MonthlyExamReportManager({
             <span className="font-semibold text-slate-500">Kỳ thi:</span>
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => {
+                const m = e.target.value;
+                setSelectedMonth(m);
+                if (examTitle.startsWith("Bài Kiểm Tra Định Kỳ")) {
+                  setExamTitle(`Bài Kiểm Tra Định Kỳ ${m}`);
+                }
+              }}
               className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-800 text-xs focus:outline-none"
             >
-              <option value="Tháng 10/2026">Tháng 10/2026</option>
-              <option value="Tháng 11/2026">Tháng 11/2026 (Sắp diễn ra)</option>
-              <option value="Tháng 09/2026">Tháng 09/2026</option>
+              {getBillingMonthOptions().map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.value}
+                </option>
+              ))}
             </select>
           </div>
         </div>

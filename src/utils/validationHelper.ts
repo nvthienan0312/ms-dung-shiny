@@ -9,9 +9,14 @@ import {
   isPastDateTime,
   isMakeupClassPast,
   formatDisplayDate,
+  getDayOfWeekNumber,
+  getRollingTwoSalaryMonths,
+  getDefaultTuitionDueDate,
+  addDaysToDateStr,
 } from "./dateHelper";
 import { isDateInMonth } from "./makeupHelper";
-import { MakeupClass, StudentItem } from "@/data/centerData";
+import { computeStudentTuitionBreakdown } from "./tuitionHelper";
+import { CENTER_BANK_CONFIG, MakeupClass, MAKEUP_SESSION_FIXED_PAY, StudentItem } from "@/data/centerData";
 
 // ============================================================================
 // 1. THẨM ĐỊNH THỜI GIAN & LỚP HỌC BÙ (TEMPORAL VALIDATION)
@@ -571,6 +576,99 @@ export function runSystemValidationTests(): SystemTestReport {
     results.push({
       id: "TEST_DELIVERY_CHANNEL_METADATA",
       name: "Phân biệt rạch ròi kênh Zalo bên ngoài vs Kênh Nội bộ Cổng Phụ Huynh",
+      passed: false,
+      expected: "Passed",
+      actual: "Exception",
+      error: e?.message,
+    });
+  }
+
+  // TEST 9: Thẩm định công thức học phí giảm trừ theo % / buổi & thù lao lớp học bù cố định 120k/ca
+  try {
+    const breakdown = computeStudentTuitionBreakdown({
+      lessonCount: 8,
+      feePerLesson: 250000,
+      discountPercent: 15,
+      surcharge: 100000,
+    });
+    const passed =
+      breakdown.calculatedAmount === 2000000 &&
+      breakdown.discount === 300000 &&
+      breakdown.finalAmount === 1800000 &&
+      MAKEUP_SESSION_FIXED_PAY === 120000;
+
+    results.push({
+      id: "TEST_TUITION_DISCOUNT_PERCENT_AND_MAKEUP_PAY",
+      name: "Công thức giảm trừ % học phí/buổi & mức trả cố định lớp học bù 120.000đ/ca",
+      passed,
+      expected: "8×250k (-15% +100k) = 1.800.000đ; MAKEUP_SESSION_FIXED_PAY = 120.000đ",
+      actual: `final=${breakdown.finalAmount}, discount=${breakdown.discount}, makeupPay=${MAKEUP_SESSION_FIXED_PAY}`,
+    });
+  } catch (e: any) {
+    results.push({
+      id: "TEST_TUITION_DISCOUNT_PERCENT_AND_MAKEUP_PAY",
+      name: "Công thức giảm trừ % học phí/buổi & mức trả cố định lớp học bù 120.000đ/ca",
+      passed: false,
+      expected: "Passed",
+      actual: "Exception",
+      error: e?.message,
+    });
+  }
+
+  // TEST 10: Thẩm định cửa sổ 2 tháng lương gần nhất cuốn chiếu & thứ trong tuần theo local date
+  try {
+    const novWindow = getRollingTwoSalaryMonths(new Date(2026, 10, 27)); // 27/11/2026
+    const decWindow = getRollingTwoSalaryMonths(new Date(2026, 11, 5));  // 05/12/2026
+    const janWindow = getRollingTwoSalaryMonths(new Date(2027, 0, 5));   // 05/01/2027
+    const thu26 = getDayOfWeekNumber("2026-11-26"); // Thứ 5 -> 5
+    const fri27 = getDayOfWeekNumber("2026-11-27"); // Thứ 6 -> 6
+    const passed =
+      novWindow[0] === "Tháng 10/2026" &&
+      novWindow[1] === "Tháng 11/2026" &&
+      decWindow[0] === "Tháng 11/2026" &&
+      decWindow[1] === "Tháng 12/2026" &&
+      janWindow[0] === "Tháng 12/2026" &&
+      janWindow[1] === "Tháng 01/2027" &&
+      thu26 === 5 &&
+      fri27 === 6;
+
+    results.push({
+      id: "TEST_ROLLING_PAYROLL_AND_LOCAL_DAY",
+      name: "Bảng lương cuốn chiếu 2 tháng (10-11 -> 11-12 -> 12-01) & tính thứ local YYYY-MM-DD",
+      passed,
+      expected: "Cửa sổ 2 tháng chuẩn & 2026-11-26=5, 2026-11-27=6",
+      actual: `nov=[${novWindow.join(", ")}], jan=[${janWindow.join(", ")}], 26=${thu26}, 27=${fri27}`,
+    });
+  } catch (e: any) {
+    results.push({
+      id: "TEST_ROLLING_PAYROLL_AND_LOCAL_DAY",
+      name: "Bảng lương cuốn chiếu 2 tháng (10-11 -> 11-12 -> 12-01) & tính thứ local YYYY-MM-DD",
+      passed: false,
+      expected: "Passed",
+      actual: "Exception",
+      error: e?.message,
+    });
+  }
+
+  // TEST 11: Thẩm định cấu hình ngân hàng thống nhất & tính ngày hạn/deadline động
+  try {
+    const dueDec = getDefaultTuitionDueDate("Tháng 12/2026");
+    const plus2 = addDaysToDateStr("2026-11-29", 2);
+    const passed =
+      CENTER_BANK_CONFIG.accountNumber === "0964645174" &&
+      dueDec === "10/12/2026" &&
+      plus2 === "2026-12-01";
+    results.push({
+      id: "TEST_UNIFIED_BANK_AND_DYNAMIC_DATES",
+      name: "Thống nhất thông tin ngân hàng MB Bank & tính hạn nộp/deadline tự động",
+      passed,
+      expected: "STK=0964645174, dueDec=10/12/2026, +2d=2026-12-01",
+      actual: `STK=${CENTER_BANK_CONFIG.accountNumber}, dueDec=${dueDec}, +2d=${plus2}`,
+    });
+  } catch (e: any) {
+    results.push({
+      id: "TEST_UNIFIED_BANK_AND_DYNAMIC_DATES",
+      name: "Thống nhất thông tin ngân hàng MB Bank & tính hạn nộp/deadline tự động",
       passed: false,
       expected: "Passed",
       actual: "Exception",

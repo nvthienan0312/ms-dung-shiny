@@ -53,7 +53,7 @@ export default function ClassesManager() {
   const [formData, setFormData] = useState({
     name: "",
     courseId: courses[0]?.id || "",
-    classroom: classrooms[0]?.name || "Phòng Shiny 201",
+    classroom: classrooms[0]?.name || "",
     teacherId: staff.find(s => s.role === "TEACHER")?.id || "",
     assistantId: staff.find(s => s.role === "ASSISTANT")?.id || "",
     feePerLesson: courses[0]?.standardFeePerLesson || 200000,
@@ -89,7 +89,7 @@ export default function ClassesManager() {
     const unusedTheme = CLASS_THEMES.find((t) => !usedColors.has(t.id)) || CLASS_THEMES[classes.length % CLASS_THEMES.length];
     const defaultTeacherId = staff.find(s => s.role === "TEACHER")?.id || "";
     const defaultAssistantId = staff.find(s => s.role === "ASSISTANT")?.id || "";
-    const defaultClassroom = classrooms[0]?.name || "Phòng Shiny 201";
+    const defaultClassroom = classrooms[0]?.name || "";
 
     setFormData({
       name: "",
@@ -270,15 +270,29 @@ export default function ClassesManager() {
     const feePerLesson = Math.max(0, Number(formData.feePerLesson) || 0);
     const defaultRoom = normalizedSchedules[0]?.classroom || formData.classroom || classrooms[0]?.name || "";
 
+    const effectivePrimaryTeacher =
+      isPerScheduleStaff &&
+      normalizedSchedules.length > 0 &&
+      !normalizedSchedules.some((s) => s.teacherId === formData.teacherId)
+        ? staff.find((s) => s.id === normalizedSchedules[0].teacherId) || selectedTeacher
+        : selectedTeacher;
+
+    const effectivePrimaryAssistant =
+      isPerScheduleStaff &&
+      normalizedSchedules.length > 0 &&
+      !normalizedSchedules.some((s) => s.assistantId === formData.assistantId)
+        ? staff.find((s) => s.id === normalizedSchedules[0].assistantId) || selectedAssistant
+        : selectedAssistant;
+
     const payload = {
       name: formData.name,
       courseId: formData.courseId,
       courseName: selectedCourse ? selectedCourse.name : "Khóa học chuẩn",
       classroom: defaultRoom,
-      teacherId: formData.teacherId,
-      teacherName: selectedTeacher ? selectedTeacher.fullName : "Chưa phân công",
-      assistantId: formData.assistantId,
-      assistantName: selectedAssistant ? selectedAssistant.fullName : "Chưa phân công",
+      teacherId: effectivePrimaryTeacher ? effectivePrimaryTeacher.id : formData.teacherId,
+      teacherName: effectivePrimaryTeacher ? effectivePrimaryTeacher.fullName : "Chưa phân công",
+      assistantId: effectivePrimaryAssistant ? effectivePrimaryAssistant.id : formData.assistantId,
+      assistantName: effectivePrimaryAssistant ? effectivePrimaryAssistant.fullName : "Chưa phân công",
       schedules: normalizedSchedules,
       feePerLesson,
       monthlyFee: feePerLesson * 8,
