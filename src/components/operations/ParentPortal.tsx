@@ -7,7 +7,7 @@ import {
   ClassLogItem,
   CENTER_BANK_CONFIG
 } from "@/data/centerData";
-import { saveMediaBlob, fileToSmallDataUrl } from "@/utils/mediaStorage";
+import { saveMediaBlob, getMediaBlob, fileToSmallDataUrl, uploadHomeworkMediaToCloud } from "@/utils/mediaStorage";
 import { getStudentDebtSummary, formatVND, calculateMonthLessons, computeStudentTuitionBreakdown } from "@/utils/tuitionHelper";
 import { getTodayDateString, parseLocalDate, getDayOfWeekLabel, getCurrentBillingMonth, getBillingMonthOptions, getDefaultTuitionDueDate } from "@/utils/dateHelper";
 
@@ -83,6 +83,7 @@ export default function ParentPortal() {
     assignments,
     makeupClasses,
     submitHomework,
+    patchHomeworkSubmissionMedia,
     addTuitionPayment,
     markTuitionBillPaid,
     markMultiMonthTuitionPaid,
@@ -135,6 +136,8 @@ export default function ParentPortal() {
   const [studentComment, setStudentComment] = useState("");
   const [isShowAllLogs, setIsShowAllLogs] = useState(false);
   const [isUploadingHomework, setIsUploadingHomework] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const syncedSubmissionKeysRef = useRef<Set<string>>(new Set());
 
   // Homework File Attachment State
   const [attachedFile, setAttachedFile] = useState<{
@@ -299,6 +302,55 @@ export default function ParentPortal() {
     return (homeworkSubmissions || []).filter((s) => s.studentId === activeStudent.id);
   }, [homeworkSubmissions, activeStudent]);
 
+  // Tự động đồng bộ các tệp video/workbook từng nộp trước đây (chỉ có trong IndexedDB máy này) lên Cloud để GV & TA xem được
+  useEffect(() => {
+    let isCancelled = false;
+    async function syncPendingLocalMedia() {
+      for (const sub of studentSubmissions) {
+        if (isCancelled) return;
+        const needsMain = !sub.mediaUrl && !sub.attachmentFileUrl && Boolean(sub.mediaStorageKey);
+        const needsWb = !sub.workbookImageUrl && Boolean(sub.workbookStorageKey);
+        if ((!needsMain && !needsWb) || syncedSubmissionKeysRef.current.has(sub.id)) continue;
+        syncedSubmissionKeysRef.current.add(sub.id);
+
+        const updates: { mediaUrl?: string; attachmentFileUrl?: string; workbookImageUrl?: string } = {};
+        if (needsMain && sub.mediaStorageKey) {
+          const blob = await getMediaBlob(sub.mediaStorageKey);
+          if (blob) {
+            const url = await uploadHomeworkMediaToCloud(
+              blob,
+              sub.attachmentFileName || sub.mediaTitle || "homework.mp4",
+              sub.mediaMimeType || blob.type
+            );
+            if (url) {
+              updates.mediaUrl = url;
+              updates.attachmentFileUrl = url;
+              if (sub.submissionType === "WORKBOOK") updates.workbookImageUrl = url;
+            }
+          }
+        }
+        if (needsWb && sub.workbookStorageKey && !updates.workbookImageUrl) {
+          const wbBlob = await getMediaBlob(sub.workbookStorageKey);
+          if (wbBlob) {
+            const wbUrl = await uploadHomeworkMediaToCloud(
+              wbBlob,
+              sub.workbookImageFileName || "workbook",
+              sub.workbookMimeType || wbBlob.type
+            );
+            if (wbUrl) updates.workbookImageUrl = wbUrl;
+          }
+        }
+        if (!isCancelled && Object.keys(updates).length > 0) {
+          patchHomeworkSubmissionMedia(sub.id, updates);
+        }
+      }
+    }
+    void syncPendingLocalMedia();
+    return () => {
+      isCancelled = true;
+    };
+  }, [studentSubmissions, patchHomeworkSubmissionMedia]);
+
   // Assignments for active class (MS Teams style + đồng bộ từ mọi ClassLog PUBLISHED có BTVN)
   const classAssignments = useMemo(() => {
     if (!activeClass) return [];
@@ -424,21 +476,19 @@ export default function ParentPortal() {
     let workbookMimeType: string | undefined;
 
     const uploadMediaFile = async (file: File): Promise<string | undefined> => {
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/homework-media", { method: "POST", body: fd });
-        if (res.ok) {
-          const json = await res.json();
-          if (json?.success && json?.url) return json.url as string;
-        }
-      } catch (err) {
-        console.warn("Lỗi upload tệp bài tập lên server:", err);
-      }
+      setUploadProgress(0);
+      const cloudUrl = await uploadHomeworkMediaToCloud(
+        file,
+        file.name,
+        file.type,
+        (pct) => setUploadProgress(pct)
+      );
+      if (cloudUrl) return cloudUrl;
       return await fileToSmallDataUrl(file);
     };
 
     setIsUploadingHomework(true);
+    setUploadProgress(null);
     try {
       if (attachedFile?.file) {
         mediaStorageKey = `hw_media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -449,6 +499,10 @@ export default function ParentPortal() {
           console.warn("Không thể lưu tệp media vào IndexedDB:", err);
         }
         mediaUrl = await uploadMediaFile(attachedFile.file);
+        if (!mediaUrl) {
+          alert("Không thể tải tệp bài tập lên Cloud DB (kiểm tra kết nối mạng hoặc dung lượng tệp tối đa 100MB). Vui lòng thử lại để Giáo viên & Trợ giảng xem được bài nộp!");
+          return;
+        }
         if (homeworkType === "WORKBOOK") {
           workbookStorageKey = mediaStorageKey;
           workbookMimeType = mediaMimeType;
@@ -465,6 +519,10 @@ export default function ParentPortal() {
           console.warn("Không thể lưu tệp workbook vào IndexedDB:", err);
         }
         workbookImageUrl = await uploadMediaFile(attachedWorkbookFile.file);
+        if (!workbookImageUrl) {
+          alert("Không thể tải tệp sách bài tập lên Cloud DB. Vui lòng thử lại!");
+          return;
+        }
       }
 
       submitHomework({
@@ -504,6 +562,7 @@ export default function ParentPortal() {
       showToast(`Nộp bài tập "${assignmentTitleToSave}" thành công cho bé ${activeStudent.fullName}! Thầy Trợ Giảng sẽ kiểm tra và nhận xét sớm.`);
     } finally {
       setIsUploadingHomework(false);
+      setUploadProgress(null);
     }
   };
 
@@ -2405,7 +2464,13 @@ export default function ParentPortal() {
                   className="flex-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl text-xs shadow-xs hover:opacity-95 disabled:opacity-60 transition flex items-center justify-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isUploadingHomework ? "Đang tải tệp bài tập lên..." : "Gửi Bài Tập Cho Thầy Cô"}</span>
+                  <span>
+                    {isUploadingHomework
+                      ? uploadProgress !== null
+                        ? `Đang tải lên Cloud (${uploadProgress}%)...`
+                        : "Đang tải tệp bài tập lên..."
+                      : "Gửi Bài Tập Cho Thầy Cô"}
+                  </span>
                 </button>
               </div>
             </form>

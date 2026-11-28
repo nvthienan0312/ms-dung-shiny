@@ -63,6 +63,7 @@ type AdminTab =
   | "COURSES"
   | "ATTENDANCE"
   | "LOGS"
+  | "HOMEWORK_GRADING"
   | "PAYROLL"
   | "TUITION"
   | "MAKEUP_CLASSES";
@@ -189,6 +190,7 @@ export default function HomePage() {
         { id: "TIMETABLE", label: "Thời khóa biểu", icon: <Calendar className="w-4 h-4" />, group: "Vận hành" },
         { id: "ATTENDANCE", label: "Giám sát điểm danh", icon: <Eye className="w-4 h-4" />, group: "Vận hành" },
         { id: "LOGS", label: "Nhật ký giảng dạy", icon: <BookOpen className="w-4 h-4" />, badge: classLogs.length, group: "Vận hành" },
+        { id: "HOMEWORK_GRADING", label: "Giám sát BTVN Online", icon: <FileCheck className="w-4 h-4" />, group: "Vận hành" },
         { id: "TUITION", label: "Quản lý học phí", icon: <Receipt className="w-4 h-4" />, group: "Tài chính & Bù" },
         { id: "PAYROLL", label: "Bảng công & Lương", icon: <Coins className="w-4 h-4" />, group: "Tài chính & Bù" },
         { id: "MAKEUP_CLASSES", label: "Lớp học bù", icon: <CalendarCheck className="w-4 h-4" />, badge: makeupClasses.length, group: "Tài chính & Bù" },
@@ -721,6 +723,7 @@ export default function HomePage() {
                 {adminTab === "TIMETABLE" && <TimetableManager userRole="ADMIN" />}
                 {adminTab === "ATTENDANCE" && <AttendanceManager userRole="ADMIN" />}
                 {adminTab === "LOGS" && <ClassLogManager userRole="ADMIN" />}
+                {adminTab === "HOMEWORK_GRADING" && <HomeworkGradingManager userRole="ADMIN" currentStaffId={currentStaffId} />}
                 {adminTab === "PAYROLL" && <PayrollManager />}
                 {adminTab === "TUITION" && <TuitionManager />}
                 {adminTab === "MAKEUP_CLASSES" && <MakeupClassesManager />}

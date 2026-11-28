@@ -235,6 +235,10 @@ interface CenterContextType {
   // Homework Submissions (Nộp bài tập trực tuyến & Trợ giảng kiểm tra)
   submitHomework: (submission: Omit<HomeworkSubmission, "id" | "submittedAt" | "status">) => HomeworkSubmission;
   gradeHomeworkSubmission: (submissionId: string, score: number | undefined, taFeedback: string, gradedBy: string) => void;
+  patchHomeworkSubmissionMedia: (
+    submissionId: string,
+    updates: Partial<Pick<HomeworkSubmission, "mediaUrl" | "attachmentFileUrl" | "workbookImageUrl">>
+  ) => void;
 
   // Parent Leave Requests (Phụ huynh xin nghỉ phép & bảo lưu buổi học)
   submitLeaveRequest: (request: Omit<ParentLeaveRequest, "id" | "submittedAt" | "status">) => ParentLeaveRequest;
@@ -354,6 +358,7 @@ interface CenterContextType {
   cloudSyncStatus: "IDLE" | "SYNCING" | "SYNCED" | "ERROR";
   lastCloudSyncAt: string | null;
   triggerCloudSync: () => Promise<void>;
+  refreshFromCloud: () => Promise<boolean>;
 }
 
 const CenterContext = createContext<CenterContextType | undefined>(undefined);
@@ -902,44 +907,50 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
     isLoaded,
   ]);
 
-  // Hàm thủ công kích hoạt đồng bộ Cloud ngay lập tức
-  const triggerCloudSync = async () => {
+  const buildDataPayload = (overrides?: Record<string, unknown>) => ({
+    classes,
+    courses,
+    staff,
+    students,
+    classrooms,
+    substitutions,
+    attendance,
+    classLogs,
+    workbookChecks,
+    incidentNotes,
+    monthlyExamReports,
+    staffTimesheets,
+    homeworkSubmissions,
+    leaveRequests,
+    tuitionPayments,
+    studentTuitionBills,
+    assignments,
+    makeupClasses,
+    expiredMakeupRecords,
+    zaloAccounts,
+    zaloMessageLogs,
+    zaloOAConfig,
+    userAccounts,
+    zaloTemplates,
+    zaloSessions,
+    ...overrides,
+  });
+
+  const pushPayloadToCloud = async (payload: Record<string, unknown>) => {
+    if (cloudSyncTimeoutRef.current) {
+      clearTimeout(cloudSyncTimeoutRef.current);
+      cloudSyncTimeoutRef.current = null;
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
     setCloudSyncStatus("SYNCING");
     try {
-      const dataPayload = {
-        classes,
-        courses,
-        staff,
-        students,
-        classrooms,
-        substitutions,
-        attendance,
-        classLogs,
-        workbookChecks,
-        incidentNotes,
-        monthlyExamReports,
-        staffTimesheets,
-        homeworkSubmissions,
-        leaveRequests,
-        tuitionPayments,
-        studentTuitionBills,
-        assignments,
-        makeupClasses,
-        expiredMakeupRecords,
-        zaloAccounts,
-        zaloMessageLogs,
-        zaloOAConfig,
-        userAccounts,
-        zaloTemplates,
-        zaloSessions,
-      };
-
       const res = await fetch("/api/cloud-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: dataPayload }),
+        body: JSON.stringify({ data: payload }),
       });
-
       if (res.ok) {
         const json = await res.json();
         setCloudSyncStatus("SYNCED");
@@ -948,8 +959,40 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         setCloudSyncStatus("ERROR");
       }
     } catch (err) {
-      console.error("Manual cloud sync failed:", err);
+      console.error("Cloud sync push failed:", err);
       setCloudSyncStatus("ERROR");
+    }
+  };
+
+  // Hàm thủ công kích hoạt đồng bộ Cloud ngay lập tức
+  const triggerCloudSync = async () => {
+    await pushPayloadToCloud(buildDataPayload());
+  };
+
+  const refreshFromCloud = async (): Promise<boolean> => {
+    setCloudSyncStatus("SYNCING");
+    try {
+      const res = await fetch("/api/cloud-sync", { cache: "no-store" });
+      if (!res.ok) {
+        setCloudSyncStatus("ERROR");
+        return false;
+      }
+      const json = await res.json();
+      if (json.success && json.data) {
+        applyDataPayload(json.data);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
+        } catch {}
+        setCloudSyncStatus("SYNCED");
+        setLastCloudSyncAt(json.updatedAt ? new Date(json.updatedAt).toISOString() : new Date().toISOString());
+        return true;
+      }
+      setCloudSyncStatus("SYNCED");
+      return false;
+    } catch (err) {
+      console.error("Failed to refresh from Cloud DB:", err);
+      setCloudSyncStatus("ERROR");
+      return false;
     }
   };
 
@@ -2200,8 +2243,19 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       submittedAt: new Date().toISOString(),
       status: "PENDING_GRADING",
     };
-    setHomeworkSubmissions((prev) => [newSubmission, ...prev]);
+    const nextSubmissions = [newSubmission, ...homeworkSubmissions];
+    setHomeworkSubmissions(nextSubmissions);
+    void pushPayloadToCloud(buildDataPayload({ homeworkSubmissions: nextSubmissions }));
     return newSubmission;
+  };
+
+  const patchHomeworkSubmissionMedia = (
+    submissionId: string,
+    updates: Partial<Pick<HomeworkSubmission, "mediaUrl" | "attachmentFileUrl" | "workbookImageUrl">>
+  ) => {
+    setHomeworkSubmissions((prev) =>
+      prev.map((sub) => (sub.id === submissionId ? { ...sub, ...updates } : sub))
+    );
   };
 
   const gradeHomeworkSubmission = (
@@ -4650,6 +4704,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         deleteAssignment,
         submitHomework,
         gradeHomeworkSubmission,
+        patchHomeworkSubmissionMedia,
         submitLeaveRequest,
         addTuitionPayment,
         calculateClassTuitionBills,
@@ -4705,6 +4760,7 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
         cloudSyncStatus,
         lastCloudSyncAt,
         triggerCloudSync,
+        refreshFromCloud,
       }}
     >
       {children}

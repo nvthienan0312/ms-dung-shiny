@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useCenter } from "@/context/CenterContext";
 import { 
   buildClassThemeMap, 
@@ -13,7 +13,12 @@ import {
   generateHomeworkGradingZaloMessage, 
   generateHomeworkReminderZaloMessage 
 } from "@/utils/zaloHelper";
-import { getMediaBlobUrl } from "@/utils/mediaStorage";
+import {
+  getMediaBlob,
+  getMediaBlobUrl,
+  uploadHomeworkMediaToCloud,
+  downloadHomeworkMedia,
+} from "@/utils/mediaStorage";
 import { 
   FileCheck, 
   Play, 
@@ -34,7 +39,8 @@ import {
   Bell,
   UserX,
   Phone,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from "lucide-react";
 
 export interface HomeworkGradingManagerProps {
@@ -53,6 +59,8 @@ export default function HomeworkGradingManager({
     substitutions, 
     homeworkSubmissions, 
     gradeHomeworkSubmission,
+    patchHomeworkSubmissionMedia,
+    refreshFromCloud,
     sendZaloMessageToParent 
   } = useCenter();
   const themeMap = useMemo(() => buildClassThemeMap(classes), [classes]);
@@ -67,6 +75,9 @@ export default function HomeworkGradingManager({
   const [resolvedWorkbookUrl, setResolvedWorkbookUrl] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(false);
   const [videoPlayError, setVideoPlayError] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const syncedMediaIdsRef = useRef<Set<string>>(new Set());
 
   // Modal chỉnh sửa & gửi Zalo cho 1 phụ huynh (Báo điểm hoặc nhắc bài)
   const [editZaloModal, setEditZaloModal] = useState<{
@@ -89,6 +100,7 @@ export default function HomeworkGradingManager({
 
   const isTeacher = userRole === "TEACHER";
   const isAssistant = userRole === "ASSISTANT";
+  const isAdmin = userRole === "ADMIN";
 
   const activeStaff = useMemo(() => {
     const matched = staff.find((s) => s.id === currentStaffId);
@@ -177,19 +189,52 @@ export default function HomeworkGradingManager({
         let nextMediaUrl: string | null =
           activeGradingItem.mediaUrl || activeGradingItem.attachmentFileUrl || null;
         if (!nextMediaUrl && activeGradingItem.mediaStorageKey) {
-          const blobUrl = await getMediaBlobUrl(activeGradingItem.mediaStorageKey);
-          if (blobUrl) {
+          const blob = await getMediaBlob(activeGradingItem.mediaStorageKey);
+          if (blob) {
+            const blobUrl = URL.createObjectURL(blob);
             createdObjectUrls.push(blobUrl);
             nextMediaUrl = blobUrl;
+
+            // Nếu máy này đang giữ file trong IndexedDB mà bài nộp chưa có URL Cloud, tự động đồng bộ lên Cloud
+            if (!syncedMediaIdsRef.current.has(activeGradingItem.id)) {
+              syncedMediaIdsRef.current.add(activeGradingItem.id);
+              void uploadHomeworkMediaToCloud(
+                blob,
+                activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "homework.mp4",
+                activeGradingItem.mediaMimeType || blob.type
+              ).then((cloudUrl) => {
+                if (cloudUrl) {
+                  patchHomeworkSubmissionMedia(activeGradingItem.id, {
+                    mediaUrl: cloudUrl,
+                    attachmentFileUrl: cloudUrl,
+                    ...(activeGradingItem.submissionType === "WORKBOOK" ? { workbookImageUrl: cloudUrl } : {}),
+                  });
+                }
+              });
+            }
           }
         }
 
         let nextWbUrl: string | null = activeGradingItem.workbookImageUrl || null;
         if (!nextWbUrl && activeGradingItem.workbookStorageKey) {
-          const wbBlobUrl = await getMediaBlobUrl(activeGradingItem.workbookStorageKey);
-          if (wbBlobUrl) {
+          const wbBlob = await getMediaBlob(activeGradingItem.workbookStorageKey);
+          if (wbBlob) {
+            const wbBlobUrl = URL.createObjectURL(wbBlob);
             createdObjectUrls.push(wbBlobUrl);
             nextWbUrl = wbBlobUrl;
+
+            if (!syncedMediaIdsRef.current.has(`wb-${activeGradingItem.id}`)) {
+              syncedMediaIdsRef.current.add(`wb-${activeGradingItem.id}`);
+              void uploadHomeworkMediaToCloud(
+                wbBlob,
+                activeGradingItem.workbookImageFileName || "workbook",
+                activeGradingItem.workbookMimeType || wbBlob.type
+              ).then((cloudUrl) => {
+                if (cloudUrl) {
+                  patchHomeworkSubmissionMedia(activeGradingItem.id, { workbookImageUrl: cloudUrl });
+                }
+              });
+            }
           }
         }
 
@@ -212,7 +257,36 @@ export default function HomeworkGradingManager({
       isCancelled = true;
       createdObjectUrls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [activeGradingItem]);
+  }, [activeGradingItem, patchHomeworkSubmissionMedia]);
+
+  const handleRefreshSubmissions = async () => {
+    setIsRefreshing(true);
+    const ok = await refreshFromCloud();
+    setIsRefreshing(false);
+    setToastMessage(ok ? "✓ Đã cập nhật danh sách bài nộp mới nhất từ Cloud DB!" : "⚠️ Không thể kết nối Cloud DB lúc này.");
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleDownloadMedia = async (url: string, fileName: string) => {
+    setDownloadProgress(0);
+    try {
+      await downloadHomeworkMedia(url, fileName, (pct) => setDownloadProgress(pct));
+    } finally {
+      setDownloadProgress(null);
+    }
+  };
+
+  const handleVideoPlayError = async () => {
+    if (activeGradingItem?.mediaStorageKey && resolvedMediaUrl && !resolvedMediaUrl.startsWith("blob:")) {
+      const localBlobUrl = await getMediaBlobUrl(activeGradingItem.mediaStorageKey);
+      if (localBlobUrl) {
+        setResolvedMediaUrl(localBlobUrl);
+        setVideoPlayError(false);
+        return;
+      }
+    }
+    setVideoPlayError(true);
+  };
 
   const handleOpenGrading = (sub: HomeworkSubmission) => {
     setGradingSubmissionId(sub.id);
@@ -374,12 +448,17 @@ export default function HomeworkGradingManager({
   const totalSub = classSubmissions.length;
 
   if (classes.length === 0 || !currentClass) {
+    const hasClassesButUnassigned = classes.length > 0 && accessibleClasses.length === 0;
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
         <FileCheck className="w-10 h-10 text-slate-300 mx-auto" />
-        <h4 className="font-bold text-base text-slate-800">Chưa Có Dữ Liệu Lớp Học</h4>
+        <h4 className="font-bold text-base text-slate-800">
+          {hasClassesButUnassigned ? "Chưa Được Phân Công Lớp Học" : "Chưa Có Dữ Liệu Lớp Học"}
+        </h4>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          Hiện tại chưa có lớp học nào trong hệ thống. Vui lòng tạo lớp học tại mục Quản lý Lớp học để bắt đầu theo dõi và chấm bài tập về nhà.
+          {hasClassesButUnassigned
+            ? "Tài khoản của bạn hiện chưa được phân công làm giáo viên hoặc trợ giảng chính cho lớp nào. Vui lòng liên hệ Admin để kiểm tra lại phân công lớp học."
+            : "Hiện tại chưa có lớp học nào trong hệ thống. Vui lòng tạo lớp học tại mục Quản lý Lớp học để bắt đầu theo dõi và chấm bài tập về nhà."}
         </p>
       </div>
     );
@@ -394,12 +473,24 @@ export default function HomeworkGradingManager({
             <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
               <FileCheck className="w-5 h-5 text-indigo-600" />
               {isTeacher
-                ? "Theo Dõi Tình Trạng Học Sinh Làm & Nộp BTVN (Giáo Viên: Chỉ Xem)"
+                ? "Theo Dõi & Xem Bài Nộp BTVN (Giáo Viên)"
+                : isAdmin
+                ? "Giám Sát Bài Tập Về Nhà Online (Admin)"
                 : `Kiểm Tra BTVN Nộp Online (Trợ Giảng: ${activeStaff.fullName})`}
             </h3>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefreshSubmissions}
+              disabled={isRefreshing}
+              className="px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-60"
+              title="Tải lại danh sách bài nộp mới nhất từ Cloud DB"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+              <span>{isRefreshing ? "Đang tải..." : "Làm mới bài nộp"}</span>
+            </button>
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-slate-500">Lớp:</span>
               <select
@@ -586,11 +677,11 @@ export default function HomeworkGradingManager({
                       </button>
                     )}
 
-                    {isTeacher && (
+                    {(isTeacher || isAdmin) && (
                       <button
                         type="button"
                         onClick={() => handleOpenGrading(sub)}
-                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold border border-slate-200 flex items-center gap-1"
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold border border-slate-200 flex items-center gap-1 cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5 text-slate-500" />
                         <span>Xem Bài Nộp</span>
@@ -685,20 +776,29 @@ export default function HomeworkGradingManager({
         </div>
       </div>
 
-      {/* MODAL CHẤM BÀI DÀNH CHO TRỢ GIẢNG */}
+      {/* MODAL XEM & CHẤM BÀI */}
       {activeGradingItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg p-4 sm:p-5 space-y-3.5 animate-in fade-in zoom-in-95">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[92dvh] overflow-y-auto p-4 sm:p-5 space-y-3.5 animate-in fade-in zoom-in-95">
             <div className="flex items-start justify-between pb-2.5 border-b border-slate-100">
-              <div>
+              <div className="min-w-0">
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900">
-                  Trợ Giảng Chấm Bài Tập Về Nhà Online
+                  {isTeacher
+                    ? "Giáo Viên Xem Bài Nộp BTVN"
+                    : isAdmin
+                    ? "Admin Giám Sát Bài Nộp BTVN"
+                    : "Trợ Giảng Chấm Bài Tập Về Nhà Online"}
                 </span>
                 <h4 className="font-bold text-base text-slate-900 mt-1">
                   {activeGradingItem.studentName} ({activeGradingItem.studentCode})
                 </h4>
-                <p className="text-xs text-slate-500">
-                  File nộp: <strong className="font-mono">{activeGradingItem.mediaTitle}</strong> ({activeGradingItem.mediaDuration})
+                <p className="text-xs text-slate-500 break-all">
+                  File nộp: <strong className="font-mono">{activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle}</strong>
+                  {activeGradingItem.mediaDuration
+                    ? ` (${activeGradingItem.mediaDuration})`
+                    : activeGradingItem.attachmentFileSize
+                    ? ` (${activeGradingItem.attachmentFileSize})`
+                    : ""}
                 </p>
               </div>
 
@@ -736,13 +836,19 @@ export default function HomeworkGradingManager({
                     </div>
                   </div>
                   {resolvedMediaUrl && (
-                    <a
-                      href={resolvedMediaUrl}
-                      download={activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "homework_media"}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10.5px] font-bold flex items-center gap-1 shrink-0 border border-slate-700"
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleDownloadMedia(
+                          resolvedMediaUrl,
+                          activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "homework_media"
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10.5px] font-bold flex items-center gap-1 shrink-0 border border-slate-700 cursor-pointer"
                     >
-                      <Download className="w-3 h-3" /> Tải tệp
-                    </a>
+                      <Download className="w-3 h-3" />{" "}
+                      {downloadProgress !== null ? `Đang tải (${downloadProgress}%)` : "Tải tệp"}
+                    </button>
                   )}
                 </div>
 
@@ -756,6 +862,7 @@ export default function HomeworkGradingManager({
                     const mime = (activeGradingItem.mediaMimeType || "").toLowerCase();
                     const isAudio = mime.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|aac)$/i.test(fileNameLower);
                     const isImage = mime.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(fileNameLower);
+                    const isPdf = mime === "application/pdf" || /\.pdf$/i.test(fileNameLower);
 
                     if (isAudio) {
                       return (
@@ -774,6 +881,15 @@ export default function HomeworkGradingManager({
                         />
                       );
                     }
+                    if (isPdf) {
+                      return (
+                        <iframe
+                          src={resolvedMediaUrl}
+                          title={activeGradingItem.mediaTitle}
+                          className="w-full h-72 rounded-xl bg-white"
+                        />
+                      );
+                    }
                     return (
                       <div className="space-y-2">
                         <video
@@ -782,29 +898,39 @@ export default function HomeworkGradingManager({
                           playsInline
                           preload="metadata"
                           src={resolvedMediaUrl}
-                          onError={() => setVideoPlayError(true)}
+                          onError={() => void handleVideoPlayError()}
                           className="w-full max-h-72 rounded-xl bg-black"
                         >
                           Trình duyệt không hỗ trợ phát video trực tiếp.
                         </video>
                         {videoPlayError && (
                           <div className="p-2.5 bg-amber-950/60 border border-amber-500/40 rounded-lg text-[11px] text-amber-200 flex items-center justify-between gap-2">
-                            <span>Định dạng video chưa được trình duyệt phát trực tiếp. Vui lòng tải tệp về để xem.</span>
-                            <a
-                              href={resolvedMediaUrl}
-                              download={activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "video_btvn"}
-                              className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-bold shrink-0"
+                            <span>Định dạng video chưa được trình duyệt phát trực tiếp hoặc tệp chưa có trên Cloud. Vui lòng tải tệp về để xem.</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleDownloadMedia(
+                                  resolvedMediaUrl,
+                                  activeGradingItem.attachmentFileName || activeGradingItem.mediaTitle || "video_btvn"
+                                )
+                              }
+                              className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-bold shrink-0 cursor-pointer"
                             >
                               Tải về
-                            </a>
+                            </button>
                           </div>
                         )}
                       </div>
                     );
                   })()
                 ) : (
-                  <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-[11px] text-amber-300">
-                    Chưa có tệp video/audio phát trực tiếp cho bài nộp này (hoặc tệp được tải lên từ thiết bị/trình duyệt khác).
+                  <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-[11px] text-amber-300 space-y-1">
+                    <div>
+                      Chưa tìm thấy video/tệp trên Cloud cho bài nộp này (có thể phụ huynh tải lên trước khi cập nhật hệ thống lưu Cloud hoặc mạng bị gián đoạn khi gửi).
+                    </div>
+                    <div className="text-slate-400 text-[10.5px]">
+                      Mẹo: Nhờ phụ huynh bấm nộp lại bài hoặc mở lại Cổng Phụ Huynh trên thiết bị đã quay để hệ thống tự đồng bộ video lên Cloud.
+                    </div>
                   </div>
                 )}
               </div>
@@ -831,13 +957,18 @@ export default function HomeworkGradingManager({
                       </div>
                     </div>
                     {resolvedWorkbookUrl && (
-                      <a
-                        href={resolvedWorkbookUrl}
-                        download={activeGradingItem.workbookImageFileName || "workbook"}
-                        className="px-2 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10.5px] font-bold flex items-center gap-1 shrink-0"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleDownloadMedia(
+                            resolvedWorkbookUrl,
+                            activeGradingItem.workbookImageFileName || "workbook"
+                          )
+                        }
+                        className="px-2 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10.5px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
                       >
                         <Download className="w-3 h-3" /> Tải về
-                      </a>
+                      </button>
                     )}
                   </div>
                   {resolvedWorkbookUrl &&
