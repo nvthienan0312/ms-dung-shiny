@@ -737,7 +737,7 @@ export default function HomePage() {
 
             {activeRole === "TEACHER" && (
               <div>
-                {teacherTab === "TIMETABLE" && <TimetableManager userRole="TEACHER" />}
+                {teacherTab === "TIMETABLE" && <TimetableManager userRole="TEACHER" currentStaffId={currentStaffId} />}
                 {teacherTab === "ATTENDANCE" && <AttendanceManager userRole="TEACHER" currentStaffId={currentStaffId} />}
                 {teacherTab === "CLASS_LOGS" && <ClassLogManager userRole="TEACHER" currentStaffId={currentStaffId} />}
                 {teacherTab === "HOMEWORK_TRACKING" && <HomeworkGradingManager userRole="TEACHER" currentStaffId={currentStaffId} />}
@@ -749,7 +749,7 @@ export default function HomePage() {
 
             {activeRole === "ASSISTANT" && (
               <div>
-                {assistantTab === "TIMETABLE" && <TimetableManager userRole="ASSISTANT" />}
+                {assistantTab === "TIMETABLE" && <TimetableManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}
                 {assistantTab === "ATTENDANCE" && <AttendanceManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}
                 {assistantTab === "WORKBOOK" && <WorkbookCheckManager currentStaffId={currentStaffId} />}
                 {assistantTab === "HOMEWORK_GRADING" && <HomeworkGradingManager userRole="ASSISTANT" currentStaffId={currentStaffId} />}

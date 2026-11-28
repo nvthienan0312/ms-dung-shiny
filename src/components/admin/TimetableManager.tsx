@@ -96,11 +96,17 @@ interface TimetableSessionEntry {
 
 export interface TimetableManagerProps {
   userRole?: UserRole;
+  currentStaffId?: string;
 }
 
-export default function TimetableManager({ userRole = "ADMIN" }: TimetableManagerProps) {
+export default function TimetableManager({ userRole = "ADMIN", currentStaffId = "" }: TimetableManagerProps) {
   const isAdmin = userRole === "ADMIN";
   const { classes, staff, substitutions, makeupClasses, setSubstitution, removeSubstitution } = useCenter();
+
+  const activeStaff = useMemo(() => {
+    if (isAdmin || !currentStaffId) return undefined;
+    return staff.find((s) => s.id === currentStaffId);
+  }, [isAdmin, currentStaffId, staff]);
 
   // BẢN ĐỒ MÀU SẮC ĐỘC NHẤT 100% - KHÔNG BAO GIỜ TRÙNG MÀU
   const themeMap = useMemo(() => buildClassThemeMap(classes), [classes]);
@@ -129,10 +135,11 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
   const teachers = staff.filter((s) => s.role === "TEACHER");
   const assistants = staff.filter((s) => s.role === "ASSISTANT");
 
-  // Quét liên tục xung đột phòng học / trùng giờ trên toàn bộ hệ thống
+  // Quét liên tục xung đột phòng học / trùng giờ trên toàn bộ hệ thống (Chỉ Admin xem cảnh báo toàn trung tâm)
   const timetableConflicts = useMemo(() => {
+    if (!isAdmin) return [];
     return detectAllTimetableConflicts(classes, makeupClasses);
-  }, [classes, makeupClasses]);
+  }, [isAdmin, classes, makeupClasses]);
 
   // --- WEEKLY CALENDAR LOGIC ---
   const getStartOfWeek = (d: Date): Date => {
@@ -179,6 +186,8 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
 
   // Query sessions for a date
   const getSessionsForDate = (date: Date): TimetableSessionEntry[] => {
+    if (!isAdmin && !currentStaffId) return [];
+
     const ourDay = jsDayToOurDay(date.getDay());
     const dateStr = formatDateISO(date);
 
@@ -194,11 +203,27 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
             (s) => s.classId === cls.id && s.dateStr === dateStr
           );
 
+          const effectiveTeacherId = sub?.subTeacherId || sch.teacherId || cls.teacherId || "";
+          const effectiveAssistantId = sub?.subAssistantId || sch.assistantId || cls.assistantId || "";
           const effectiveTeacherName = sub?.subTeacherName || sch.teacherName || cls.teacherName || "";
           const effectiveAssistantName = sub?.subAssistantName || sch.assistantName || cls.assistantName || "";
 
-          if (teacherFilter !== "ALL" && !effectiveTeacherName.includes(teacherFilter)) return;
-          if (assistantFilter !== "ALL" && !effectiveAssistantName.includes(assistantFilter)) return;
+          if (userRole === "TEACHER") {
+            const matchesById = Boolean(effectiveTeacherId && effectiveTeacherId === currentStaffId);
+            const matchesByName = Boolean(
+              !effectiveTeacherId && activeStaff?.fullName && effectiveTeacherName === activeStaff.fullName
+            );
+            if (!matchesById && !matchesByName) return;
+          } else if (userRole === "ASSISTANT") {
+            const matchesById = Boolean(effectiveAssistantId && effectiveAssistantId === currentStaffId);
+            const matchesByName = Boolean(
+              !effectiveAssistantId && activeStaff?.fullName && effectiveAssistantName === activeStaff.fullName
+            );
+            if (!matchesById && !matchesByName) return;
+          } else {
+            if (teacherFilter !== "ALL" && !effectiveTeacherName.includes(teacherFilter)) return;
+            if (assistantFilter !== "ALL" && !effectiveAssistantName.includes(assistantFilter)) return;
+          }
 
           result.push({
             classItem: cls,
@@ -220,8 +245,17 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
       .forEach((mc) => {
         const isTeacher = mc.roleInCharge === "TEACHER";
         const mcStaffName = mc.teacherOrAssistantName || "";
-        if (teacherFilter !== "ALL" && isTeacher && !mcStaffName.includes(teacherFilter)) return;
-        if (assistantFilter !== "ALL" && !isTeacher && !mcStaffName.includes(assistantFilter)) return;
+
+        if (userRole === "TEACHER" || userRole === "ASSISTANT") {
+          const matchesId = Boolean(mc.teacherOrAssistantId && mc.teacherOrAssistantId === currentStaffId);
+          const matchesName = Boolean(
+            !mc.teacherOrAssistantId && activeStaff?.fullName && mcStaffName === activeStaff.fullName
+          );
+          if (!matchesId && !matchesName) return;
+        } else {
+          if (teacherFilter !== "ALL" && isTeacher && !mcStaffName.includes(teacherFilter)) return;
+          if (assistantFilter !== "ALL" && !isTeacher && !mcStaffName.includes(assistantFilter)) return;
+        }
 
         result.push({
           schedule: {
@@ -243,6 +277,33 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
 
     return result.sort((a, b) => a.schedule.startTime.localeCompare(b.schedule.startTime));
   };
+
+  // Với Giáo viên / Trợ giảng: chỉ hiển thị những ngày và khung giờ họ thực sự có lịch dạy trong tuần
+  const visibleWeekDays = isAdmin
+    ? weekDays
+    : weekDays.filter((day) => getSessionsForDate(day).length > 0);
+
+  const visibleTimeSlotRows = isAdmin
+    ? TIME_SLOT_ROWS
+    : TIME_SLOT_ROWS.filter((slotRow) =>
+        visibleWeekDays.some((day) =>
+          getSessionsForDate(day).some((s) => slotRow.filter(s.schedule.startTime))
+        )
+      );
+
+  // Danh sách các lớp thuộc phạm vi hiển thị ở bảng chú thích màu
+  const legendClasses = useMemo(() => {
+    if (isAdmin) return classes;
+    if (!currentStaffId) return [];
+    if (userRole === "TEACHER") {
+      return classes.filter(
+        (c) => c.teacherId === currentStaffId || (c.schedules || []).some((s) => s.teacherId === currentStaffId)
+      );
+    }
+    return classes.filter(
+      (c) => c.assistantId === currentStaffId || (c.schedules || []).some((s) => s.assistantId === currentStaffId)
+    );
+  }, [isAdmin, classes, currentStaffId, userRole]);
 
   // Open Direct Session Modal
   const handleOpenSessionModal = (entry: TimetableSessionEntry) => {
@@ -353,10 +414,15 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
-                <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" /> Thời Khóa Biểu Toàn Trung Tâm
+                <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                {isAdmin
+                  ? "Thời Khóa Biểu Toàn Trung Tâm"
+                  : userRole === "TEACHER"
+                  ? `Lịch Giảng Dạy Cá Nhân (${activeStaff?.fullName || "Giáo viên"})`
+                  : `Lịch Trực Lớp Cá Nhân (${activeStaff?.fullName || "Trợ giảng"})`}
               </h3>
               <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                Phòng Ngừa Trùng Giờ 100%
+                {isAdmin ? "Phòng Ngừa Trùng Giờ 100%" : "Chỉ Hiển Thị Ngày Có Lịch Dạy"}
               </span>
             </div>
           </div>
@@ -417,58 +483,65 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
           </div>
         </div>
 
-        {/* Filter bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
-          <div>
-            <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Lọc theo Giáo viên:</label>
-            <select
-              value={teacherFilter}
-              onChange={(e) => setTeacherFilter(e.target.value)}
-              className="w-full px-2.5 py-1 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-            >
-              <option value="ALL">Tất cả Giáo viên</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.fullName}>
-                  {t.fullName}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Filter bar (Chỉ hiển thị cho Admin xem toàn trung tâm) */}
+        {isAdmin && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Lọc theo Giáo viên:</label>
+              <select
+                value={teacherFilter}
+                onChange={(e) => setTeacherFilter(e.target.value)}
+                className="w-full px-2.5 py-1 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              >
+                <option value="ALL">Tất cả Giáo viên</option>
+                {teachers.map((t) => (
+                  <option key={t.id} value={t.fullName}>
+                    {t.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Lọc theo Trợ giảng (TA):</label>
-            <select
-              value={assistantFilter}
-              onChange={(e) => setAssistantFilter(e.target.value)}
-              className="w-full px-2.5 py-1 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-            >
-              <option value="ALL">Tất cả Trợ giảng</option>
-              {assistants.map((ta) => (
-                <option key={ta.id} value={ta.fullName}>
-                  {ta.fullName}
-                </option>
-              ))}
-            </select>
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">Lọc theo Trợ giảng (TA):</label>
+              <select
+                value={assistantFilter}
+                onChange={(e) => setAssistantFilter(e.target.value)}
+                className="w-full px-2.5 py-1 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              >
+                <option value="ALL">Tất cả Trợ giảng</option>
+                {assistants.map((ta) => (
+                  <option key={ta.id} value={ta.fullName}>
+                    {ta.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Legend / Bảng Chú Thích Phân Biệt Màu Sắc Các Lớp Học */}
         <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 text-xs">
           <span className="text-[10px] font-semibold text-slate-500 flex items-center gap-1">
-            <Palette className="w-3 h-3 text-amber-500" /> Bảng màu lớp học (100% không trùng màu):
+            <Palette className="w-3 h-3 text-amber-500" />
+            {isAdmin ? "Bảng màu lớp học (100% không trùng màu):" : "Các lớp bạn phụ trách:"}
           </span>
-          {classes.map((cls) => {
-            const theme = themeMap.get(cls.id) || CLASS_THEMES[0];
-            return (
-              <div
-                key={cls.id}
-                className="inline-flex items-center gap-1 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10px] transition shadow-2xs"
-              >
-                <span className={`w-2 h-2 rounded-full ${theme.dot} shrink-0`} />
-                <span className="font-bold text-slate-900">{cls.name}</span>
-              </div>
-            );
-          })}
+          {legendClasses.length === 0 && !isAdmin ? (
+            <span className="text-[10px] text-slate-400 italic">Chưa có lớp cố định nào được phân công</span>
+          ) : (
+            legendClasses.map((cls) => {
+              const theme = themeMap.get(cls.id) || CLASS_THEMES[0];
+              return (
+                <div
+                  key={cls.id}
+                  className="inline-flex items-center gap-1 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10px] transition shadow-2xs"
+                >
+                  <span className={`w-2 h-2 rounded-full ${theme.dot} shrink-0`} />
+                  <span className="font-bold text-slate-900">{cls.name}</span>
+                </div>
+              );
+            })
+          )}
           <div className="inline-flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300 text-amber-950 font-bold text-[10px] shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
             <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
@@ -498,10 +571,21 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
       {/* VIEW 1: THỜI KHÓA BIỂU THEO TUẦN (CỘT LÀ THỨ, HÀNG LÀ KHUNG GIỜ) */}
       {/* ============================================================== */}
       {viewMode === "WEEKLY" && (
+        visibleWeekDays.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2 shadow-sm">
+            <CalendarIcon className="w-9 h-9 text-slate-300 mx-auto" />
+            <div className="font-bold text-sm text-slate-800">
+              Không Có Lịch Dạy Trong Tuần Này
+            </div>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Từ ngày {weekDays[0].getDate()}/{weekDays[0].getMonth() + 1} đến {weekDays[6].getDate()}/{weekDays[6].getMonth() + 1}, bạn không có ca đứng lớp hoặc ca dạy thay nào được phân công.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-2">
-          {/* Mobile Quick Day Strip (Duyệt nhanh ngày trên điện thoại) */}
+          {/* Mobile Quick Day Strip (Duyệt nhanh các ngày có lịch dạy) */}
           <div className="flex sm:hidden items-center gap-1.5 overflow-x-auto scrollbar-none pb-1">
-            {weekDays.map((day) => {
+            {visibleWeekDays.map((day) => {
               const isToday = formatDateISO(day) === realTodayStr;
               const dayLabels = ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
               const dayLabel = dayLabels[day.getDay()];
@@ -529,15 +613,15 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto scrollbar-thin">
-              <table className="w-full table-fixed text-left text-xs border-collapse min-w-[740px] lg:min-w-0">
+              <table className={`w-full table-fixed text-left text-xs border-collapse ${visibleWeekDays.length >= 5 ? "min-w-[740px] lg:min-w-0" : "min-w-0"}`}>
               <thead>
                 <tr className="bg-slate-50/90 border-b border-slate-200">
                   {/* Cột 1: Tiêu đề Khung Giờ */}
                   <th className="py-2 px-1.5 w-[90px] xl:w-[105px] font-bold text-slate-700 border-r border-slate-200 uppercase tracking-tight text-[10px] bg-slate-100/70">
                     Khung Giờ
                   </th>
-                  {/* 7 Cột: Các Ngày Trong Tuần (Thứ 2 -> Chủ Nhật) */}
-                  {weekDays.map((day) => {
+                  {/* Các Ngày Có Lịch Dạy Trong Tuần */}
+                  {visibleWeekDays.map((day) => {
                     const isToday = formatDateISO(day) === realTodayStr;
                     const dayLabels = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
                     const dayLabel = dayLabels[day.getDay()];
@@ -579,7 +663,7 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {/* CÁC HÀNG: THỜI GIAN THEO KHUNG GIỜ */}
-                {TIME_SLOT_ROWS.map((slotRow) => (
+                {visibleTimeSlotRows.map((slotRow) => (
                   <tr key={slotRow.id} className="hover:bg-slate-50/20 transition">
                     {/* HÀNG HEADER BÊN TRÁI: KHUNG GIỜ */}
                     <td className="py-2.5 px-2 border-r border-slate-200 bg-slate-50/70 align-top">
@@ -594,8 +678,8 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
                       </div>
                     </td>
 
-                    {/* 7 Ô NỘI DUNG TƯƠNG ỨNG 7 NGÀY */}
-                    {weekDays.map((day) => {
+                    {/* Ô NỘI DUNG TƯƠNG ỨNG CÁC NGÀY HIỂN THỊ */}
+                    {visibleWeekDays.map((day) => {
                       const sessions = getSessionsForDate(day).filter((s) => slotRow.filter(s.schedule.startTime));
                       const isToday = formatDateISO(day) === realTodayStr;
 
@@ -757,7 +841,8 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
           </div>
         </div>
       </div>
-    )}
+        )
+      )}
 
       {/* ============================================================== */}
       {/* VIEW 2: THỜI KHÓA BIỂU THEO THÁNG (MONTHLY VIEW) */}
@@ -766,114 +851,222 @@ export default function TimetableManager({ userRole = "ADMIN" }: TimetableManage
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 sm:p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <CalendarDays className="w-4 h-4 text-amber-500" /> Lịch Vận Hành Tháng {currentMonth + 1}/{currentYear}
+              <CalendarDays className="w-4 h-4 text-amber-500" />
+              {isAdmin
+                ? `Lịch Vận Hành Tháng ${currentMonth + 1}/${currentYear}`
+                : `Các Ngày Có Lịch Dạy Tháng ${currentMonth + 1}/${currentYear}`}
             </span>
           </div>
 
-          {/* Month Grid */}
-          <div className="overflow-x-auto scrollbar-thin">
-            <div className="grid grid-cols-7 gap-1 text-center text-xs min-w-[700px] sm:min-w-full">
-            {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((dayName) => (
-              <div key={dayName} className="font-bold text-slate-500 py-2 bg-slate-50 rounded-lg">
-                {dayName}
-              </div>
-            ))}
+          {!isAdmin ? (
+            (() => {
+              const dayNames = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+              const teachingDays = Array.from({ length: daysInMonth }, (_, i) => {
+                const date = new Date(currentYear, currentMonth, i + 1);
+                return { dayNum: i + 1, date, sessions: getSessionsForDate(date) };
+              }).filter((d) => d.sessions.length > 0);
 
-            {Array.from({ length: firstDayIndex }).map((_, i) => (
-              <div key={`empty-${i}`} className="min-h-[110px] p-1 bg-slate-50/40 rounded-lg border border-transparent" />
-            ))}
-
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const dayNum = i + 1;
-              const date = new Date(currentYear, currentMonth, dayNum);
-              const sessions = getSessionsForDate(date);
-              const isToday = formatDateISO(date) === realTodayStr;
+              if (teachingDays.length === 0) {
+                return (
+                  <div className="p-8 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-200">
+                    Tháng {currentMonth + 1}/{currentYear} bạn không có ca đứng lớp hoặc dạy thay nào được phân công.
+                  </div>
+                );
+              }
 
               return (
-                <div
-                  key={`day-${dayNum}`}
-                  className={`min-h-[115px] p-1.5 rounded-xl border text-left flex flex-col justify-between transition ${
-                    isToday ? "bg-amber-50/50 border-amber-400 ring-1 ring-amber-300" : "bg-white border-slate-100 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${isToday ? "text-amber-800" : "text-slate-800"}`}>
-                      {dayNum}
-                    </span>
-                    {sessions.length > 0 && (
-                      <span className="text-[9px] font-bold text-slate-400">
-                        {sessions.length} ca
-                      </span>
-                    )}
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                  {teachingDays.map(({ dayNum, date, sessions }) => {
+                    const isToday = formatDateISO(date) === realTodayStr;
+                    return (
+                      <div
+                        key={`staff-day-${dayNum}`}
+                        className={`p-3 rounded-xl border space-y-2 transition ${
+                          isToday
+                            ? "bg-amber-50/60 border-amber-400 ring-1 ring-amber-300"
+                            : "bg-slate-50/40 border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between border-b border-slate-200/70 pb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-bold text-xs ${isToday ? "text-amber-900" : "text-slate-900"}`}>
+                              {dayNames[date.getDay()]}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500">
+                              {String(dayNum).padStart(2, "0")}/{String(currentMonth + 1).padStart(2, "0")}
+                            </span>
+                            {isToday && (
+                              <span className="text-[9px] font-bold bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded">
+                                Hôm nay
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
+                            {sessions.length} ca
+                          </span>
+                        </div>
 
-                  {/* Pills for sessions - Direct click opens Session Detail! */}
-                  <div className="space-y-1 my-1 flex-1">
-                    {sessions.map((s, idx) => {
-                      if (s.isMakeupClass && s.makeupClass) {
-                        const mc = s.makeupClass;
+                        <div className="space-y-1.5">
+                          {sessions.map((s, idx) => {
+                            if (s.isMakeupClass && s.makeupClass) {
+                              const mc = s.makeupClass;
+                              return (
+                                <div
+                                  key={`m-mc-${mc.id}-${idx}`}
+                                  onClick={() => handleOpenSessionModal(s)}
+                                  className="p-2 rounded-lg text-xs font-bold cursor-pointer transition bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-between gap-2"
+                                >
+                                  <span className="truncate">
+                                    ⚡ BÙ • {mc.startTime}-{mc.endTime} • {mc.title}
+                                  </span>
+                                  <span className="text-[10px] bg-purple-800 px-1.5 py-0.5 rounded shrink-0">
+                                    {(mc.students || []).length} HS
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            const theme = s.classItem ? (themeMap.get(s.classItem.id) || CLASS_THEMES[0]) : CLASS_THEMES[0];
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => handleOpenSessionModal(s)}
+                                className={`p-2 rounded-lg text-xs cursor-pointer transition border ${
+                                  s.isSubstituted
+                                    ? "bg-amber-100 border-amber-400 text-amber-950"
+                                    : `${theme.weeklyBg} ${theme.weeklyBorder} text-slate-900`
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2 font-bold">
+                                  <span className="truncate">{s.classItem?.name}</span>
+                                  <span className="font-mono text-[11px] shrink-0">
+                                    {s.schedule.startTime}-{s.schedule.endTime}
+                                  </span>
+                                </div>
+                                <div className="text-[10.5px] text-slate-600 flex items-center justify-between mt-0.5">
+                                  <span className="truncate">{s.schedule.classroom || s.classItem?.classroom}</span>
+                                  {s.isSubstituted && (
+                                    <span className="text-[9px] font-bold bg-amber-500 text-slate-950 px-1.5 rounded">
+                                      Dạy thay
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()
+          ) : (
+            /* Admin Full Center Month Grid */
+            <div className="overflow-x-auto scrollbar-thin">
+              <div className="grid grid-cols-7 gap-1 text-center text-xs min-w-[700px] sm:min-w-full">
+              {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((dayName) => (
+                <div key={dayName} className="font-bold text-slate-500 py-2 bg-slate-50 rounded-lg">
+                  {dayName}
+                </div>
+              ))}
+
+              {Array.from({ length: firstDayIndex }).map((_, i) => (
+                <div key={`empty-${i}`} className="min-h-[110px] p-1 bg-slate-50/40 rounded-lg border border-transparent" />
+              ))}
+
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const dayNum = i + 1;
+                const date = new Date(currentYear, currentMonth, dayNum);
+                const sessions = getSessionsForDate(date);
+                const isToday = formatDateISO(date) === realTodayStr;
+
+                return (
+                  <div
+                    key={`day-${dayNum}`}
+                    className={`min-h-[115px] p-1.5 rounded-xl border text-left flex flex-col justify-between transition ${
+                      isToday ? "bg-amber-50/50 border-amber-400 ring-1 ring-amber-300" : "bg-white border-slate-100 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${isToday ? "text-amber-800" : "text-slate-800"}`}>
+                        {dayNum}
+                      </span>
+                      {sessions.length > 0 && (
+                        <span className="text-[9px] font-bold text-slate-400">
+                          {sessions.length} ca
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Pills for sessions - Direct click opens Session Detail! */}
+                    <div className="space-y-1 my-1 flex-1">
+                      {sessions.map((s, idx) => {
+                        if (s.isMakeupClass && s.makeupClass) {
+                          const mc = s.makeupClass;
+                          return (
+                            <div
+                              key={`m-mc-${mc.id}-${idx}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenSessionModal(s);
+                              }}
+                              className="text-[9.5px] px-1.5 py-1 rounded-md truncate font-bold cursor-pointer transition shadow-2xs hover:scale-[1.03] active:scale-95 flex items-center justify-between gap-1 bg-purple-600 hover:bg-purple-700 text-white border border-purple-500 ring-1 ring-purple-300"
+                              title={`Xem chi tiết lớp học bù: ${mc.title} (${mc.startTime} - ${mc.endTime})`}
+                            >
+                              <span className="truncate flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" />
+                                <span>{mc.startTime}</span>
+                                <span className="opacity-75">•</span>
+                                <span className="font-mono text-amber-200">⚡ BÙ</span>
+                              </span>
+                              <span className="text-[8px] bg-purple-800 text-purple-100 font-semibold px-1 rounded shrink-0">
+                                {(mc.students || []).length} HS
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        const theme = s.classItem ? (themeMap.get(s.classItem.id) || CLASS_THEMES[0]) : CLASS_THEMES[0];
                         return (
                           <div
-                            key={`m-mc-${mc.id}-${idx}`}
+                            key={idx}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleOpenSessionModal(s);
                             }}
-                            className="text-[9.5px] px-1.5 py-1 rounded-md truncate font-bold cursor-pointer transition shadow-2xs hover:scale-[1.03] active:scale-95 flex items-center justify-between gap-1 bg-purple-600 hover:bg-purple-700 text-white border border-purple-500 ring-1 ring-purple-300"
-                            title={`Xem chi tiết lớp học bù: ${mc.title} (${mc.startTime} - ${mc.endTime})`}
+                            className={`text-[9.5px] px-1.5 py-1 rounded-md truncate font-bold cursor-pointer transition shadow-2xs hover:scale-[1.03] active:scale-95 flex items-center justify-between gap-1 ${
+                              s.isSubstituted
+                                ? "bg-amber-400 text-slate-950 font-bold border border-amber-500 ring-1 ring-amber-300"
+                                : theme.monthlyPillBg
+                            }`}
+                            title={`Xem chi tiết ca học: ${s.classItem?.name} (${s.schedule.startTime} - ${s.schedule.endTime})`}
                           >
                             <span className="truncate flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" />
-                              <span>{mc.startTime}</span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0" />
+                              <span>{s.schedule.startTime}</span>
                               <span className="opacity-75">•</span>
-                              <span className="font-mono text-amber-200">⚡ BÙ</span>
+                              <span className="truncate">{s.classItem?.name}</span>
                             </span>
-                            <span className="text-[8px] bg-purple-800 text-purple-100 font-semibold px-1 rounded shrink-0">
-                              {(mc.students || []).length} HS
-                            </span>
+                            {s.isSubstituted && (
+                              <span className="text-[8px] bg-slate-950 text-amber-300 font-bold px-1 rounded shadow-xs shrink-0">
+                                Dạy thay
+                              </span>
+                            )}
                           </div>
                         );
-                      }
+                      })}
+                    </div>
 
-                      const theme = s.classItem ? (themeMap.get(s.classItem.id) || CLASS_THEMES[0]) : CLASS_THEMES[0];
-                      return (
-                        <div
-                          key={idx}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenSessionModal(s);
-                          }}
-                          className={`text-[9.5px] px-1.5 py-1 rounded-md truncate font-bold cursor-pointer transition shadow-2xs hover:scale-[1.03] active:scale-95 flex items-center justify-between gap-1 ${
-                            s.isSubstituted
-                              ? "bg-amber-400 text-slate-950 font-bold border border-amber-500 ring-1 ring-amber-300"
-                              : theme.monthlyPillBg
-                          }`}
-                          title={`Xem chi tiết ca học: ${s.classItem?.name} (${s.schedule.startTime} - ${s.schedule.endTime})`}
-                        >
-                          <span className="truncate flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0" />
-                            <span>{s.schedule.startTime}</span>
-                            <span className="opacity-75">•</span>
-                            <span className="truncate">{s.classItem?.name}</span>
-                          </span>
-                          {s.isSubstituted && (
-                            <span className="text-[8px] bg-slate-950 text-amber-300 font-bold px-1 rounded shadow-xs shrink-0">
-                              Dạy thay
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+                    <div className="text-[8px] text-slate-300 text-right">
+                      Shiny English
+                    </div>
                   </div>
-
-                  <div className="text-[8px] text-slate-300 text-right">
-                    Shiny English
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
