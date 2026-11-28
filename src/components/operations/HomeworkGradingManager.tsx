@@ -57,6 +57,8 @@ export default function HomeworkGradingManager({
     students, 
     staff, 
     substitutions, 
+    assignments,
+    classLogs,
     homeworkSubmissions, 
     gradeHomeworkSubmission,
     patchHomeworkSubmissionMedia,
@@ -65,7 +67,7 @@ export default function HomeworkGradingManager({
   } = useCenter();
   const themeMap = useMemo(() => buildClassThemeMap(classes), [classes]);
 
-  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedClassId, setSelectedClassId] = useState<string>(userRole === "ADMIN" ? "ALL" : "");
   const [gradingSubmissionId, setGradingSubmissionId] = useState<string | null>(null);
 
   // Grade modal form state
@@ -134,28 +136,91 @@ export default function HomeworkGradingManager({
     return { total: relevantSubs.length, graded, pending, distinctStudents };
   }, [accessibleClasses, homeworkSubmissions, userRole]);
 
-  // Tự động chọn lớp đầu tiên trong danh sách phụ trách chính
+  // Tự động chọn lớp đầu tiên trong danh sách phụ trách (hoặc "ALL" cho Admin)
   useEffect(() => {
+    if (selectedClassId === "ALL" && (userRole === "ADMIN" || accessibleClasses.length > 0)) return;
     if (accessibleClasses.length > 0 && !accessibleClasses.some((c) => c.id === selectedClassId)) {
-      setSelectedClassId(accessibleClasses[0].id);
-    } else if (accessibleClasses.length === 0 && selectedClassId) {
+      setSelectedClassId(userRole === "ADMIN" ? "ALL" : accessibleClasses[0].id);
+    } else if (accessibleClasses.length === 0 && selectedClassId && userRole !== "ADMIN") {
       setSelectedClassId("");
     }
-  }, [accessibleClasses, selectedClassId]);
+  }, [accessibleClasses, selectedClassId, userRole]);
+
+  const isAllClassesMode = selectedClassId === "ALL";
 
   const currentClass = useMemo(() => {
-    if (accessibleClasses.length === 0) return undefined;
+    if (isAllClassesMode || accessibleClasses.length === 0) return undefined;
     return accessibleClasses.find((c) => c.id === selectedClassId) || accessibleClasses[0];
-  }, [selectedClassId, accessibleClasses]);
+  }, [isAllClassesMode, selectedClassId, accessibleClasses]);
+
+  const accessibleClassIds = useMemo(
+    () => new Set(accessibleClasses.map((c) => c.id)),
+    [accessibleClasses]
+  );
 
   const classStudents = useMemo(() => {
+    if (isAllClassesMode) {
+      return isAdmin
+        ? students
+        : students.filter((s) => Boolean(s.classId && accessibleClassIds.has(s.classId)));
+    }
     if (!currentClass) return [];
     return students.filter((s) => s.classId === currentClass.id);
-  }, [students, currentClass]);
+  }, [isAllClassesMode, isAdmin, students, accessibleClassIds, currentClass]);
+
+  const classStudentIds = useMemo(() => new Set(classStudents.map((s) => s.id)), [classStudents]);
 
   const classSubmissions = useMemo(() => {
-    return homeworkSubmissions.filter((s) => s.classId === currentClass?.id);
-  }, [homeworkSubmissions, currentClass]);
+    if (isAllClassesMode) {
+      return isAdmin
+        ? homeworkSubmissions
+        : homeworkSubmissions.filter((s) => accessibleClassIds.has(s.classId) || classStudentIds.has(s.studentId));
+    }
+    if (!currentClass) return [];
+    return homeworkSubmissions.filter(
+      (s) => s.classId === currentClass.id || classStudentIds.has(s.studentId)
+    );
+  }, [isAllClassesMode, isAdmin, homeworkSubmissions, accessibleClassIds, classStudentIds, currentClass]);
+
+  // Danh sách đề BTVN đã giao cho lớp đang xem (từ assignments + classLogs PUBLISHED)
+  const classHomeworkAssignments = useMemo(() => {
+    const targetClassIds = isAllClassesMode
+      ? new Set((isAdmin ? classes : accessibleClasses).map((c) => c.id))
+      : currentClass
+      ? new Set([currentClass.id])
+      : new Set<string>();
+
+    const list: Array<{ id: string; className: string; sessionTitle: string; title: string; dueDateTime: string }> = [];
+    const seenKeys = new Set<string>();
+
+    (assignments || []).forEach((a) => {
+      if (!targetClassIds.has(a.classId)) return;
+      seenKeys.add(`${a.classId}_${a.sessionDate}`);
+      list.push({
+        id: a.id,
+        className: a.className,
+        sessionTitle: a.sessionTitle,
+        title: a.title,
+        dueDateTime: a.dueDateTime,
+      });
+    });
+
+    (classLogs || []).forEach((log) => {
+      if (log.status !== "PUBLISHED" || !targetClassIds.has(log.classId)) return;
+      if (!log.homeworkTitle?.trim() && !log.homeworkDescription?.trim()) return;
+      if (seenKeys.has(`${log.classId}_${log.dateStr}`)) return;
+      seenKeys.add(`${log.classId}_${log.dateStr}`);
+      list.push({
+        id: `log-hw-${log.id}`,
+        className: log.className,
+        sessionTitle: `Buổi ${log.dateStr}`,
+        title: log.homeworkTitle?.trim() || "Bài tập về nhà",
+        dueDateTime: log.homeworkDeadline || log.dateStr,
+      });
+    });
+
+    return list;
+  }, [isAllClassesMode, isAdmin, classes, accessibleClasses, currentClass, assignments, classLogs]);
 
   // TÍNH TOÁN DANH SÁCH HỌC SINH ĐÃ NỘP & CHƯA NỘP
   const submittedStudentIds = useMemo(() => {
@@ -446,8 +511,9 @@ export default function HomeworkGradingManager({
   const gradedCount = classSubmissions.filter((s) => s.status === "GRADED").length;
   const pendingCount = classSubmissions.filter((s) => s.status === "PENDING_GRADING").length;
   const totalSub = classSubmissions.length;
+  const currentScopeLabel = currentClass ? currentClass.name : "Tất Cả Các Lớp";
 
-  if (classes.length === 0 || !currentClass) {
+  if (!isAdmin && (classes.length === 0 || (!currentClass && !isAllClassesMode))) {
     const hasClassesButUnassigned = classes.length > 0 && accessibleClasses.length === 0;
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
@@ -498,6 +564,9 @@ export default function HomeworkGradingManager({
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-800 text-xs focus:outline-none"
               >
+                <option value="ALL">
+                  {isAdmin ? "Tất cả các lớp" : `Tất cả lớp phụ trách (${accessibleClasses.length})`}
+                </option>
                 {accessibleClasses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -517,7 +586,9 @@ export default function HomeworkGradingManager({
         {/* Stats */}
         <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-slate-600">Tiến độ lớp {currentClass.name}:</span>
+            <span className="font-semibold text-slate-600">
+              {currentClass ? `Tiến độ lớp ${currentClass.name}:` : "Tiến độ toàn phạm vi:"}
+            </span>
             <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 font-bold font-mono border border-indigo-200">
               Tổng bài đã nộp: {totalSub} bài ({submittedStudentIds.size}/{classStudents.length} HS)
             </span>
@@ -559,12 +630,36 @@ export default function HomeworkGradingManager({
         </div>
       )}
 
+      {/* Danh sách Đề BTVN Đã Giao (Admin / GV / TA cùng nắm rõ đầu bài) */}
+      {classHomeworkAssignments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs space-y-2">
+          <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
+            <span>📚 BTVN Đã Giao ({classHomeworkAssignments.length} bài)</span>
+            <span className="text-[10.5px] font-medium text-slate-500">{currentScopeLabel}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {classHomeworkAssignments.slice(0, 8).map((hw) => (
+              <div
+                key={hw.id}
+                className="px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200 text-[11px] flex items-center gap-1.5 max-w-full"
+              >
+                <span className="font-bold text-indigo-700 shrink-0">{hw.className}:</span>
+                <span className="font-semibold text-slate-800 truncate max-w-[240px]" title={hw.title}>
+                  {hw.title}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 shrink-0">({hw.sessionTitle})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* List of submissions & tracking */}
       <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
             <Video className="w-4 h-4 text-blue-600" />
-            <span>Bài Tập Về Nhà: Lớp {currentClass.name}</span>
+            <span>Bài Tập Về Nhà: {currentScopeLabel}</span>
           </div>
 
           {/* Subtabs: Tất cả / Đã nộp / Chưa nộp */}
@@ -610,6 +705,7 @@ export default function HomeworkGradingManager({
           {/* 1. HIỂN THỊ DANH SÁCH HỌC SINH ĐÃ NỘP (nếu tab ALL hoặc SUBMITTED) */}
           {(activeFilterTab === "ALL" || activeFilterTab === "SUBMITTED") && classSubmissions.map((sub, idx) => {
             const isGraded = sub.status === "GRADED";
+            const subClassName = classes.find((c) => c.id === sub.classId)?.name;
 
             return (
               <div key={sub.id} className="p-3.5 space-y-2 hover:bg-slate-50/50 transition">
@@ -619,8 +715,13 @@ export default function HomeworkGradingManager({
                       {idx + 1}
                     </span>
                     <div className="min-w-0">
-                      <div className="font-bold text-xs sm:text-sm text-slate-900 break-words leading-tight flex items-center gap-2">
+                      <div className="font-bold text-xs sm:text-sm text-slate-900 break-words leading-tight flex items-center gap-2 flex-wrap">
                         <span>{sub.studentName}</span>
+                        {isAllClassesMode && subClassName && (
+                          <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                            Lớp {subClassName}
+                          </span>
+                        )}
                         {sub.submissionType === "BOTH" && (
                           <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-purple-100 text-purple-900 border border-purple-200">
                             🌟 Cả Video & Sách
@@ -1063,10 +1164,10 @@ export default function HomeworkGradingManager({
       <ZaloBatchQueueModal
         isOpen={isZaloQueueOpen}
         onClose={() => setIsZaloQueueOpen(false)}
-        title={`Hàng Đợi Nhắc Zalo BTVN Lớp ${currentClass.name}`}
+        title={`Hàng Đợi Nhắc Zalo BTVN ${currentScopeLabel}`}
         initialItems={zaloQueueItems}
         onAllCompleted={(count) => {
-          setToastMessage(`✓ Đã hoàn tất phiên gửi hàng đợi Zalo nhắc BTVN cho ${count} phụ huynh lớp ${currentClass.name}!`);
+          setToastMessage(`✓ Đã hoàn tất phiên gửi hàng đợi Zalo nhắc BTVN cho ${count} phụ huynh (${currentScopeLabel})!`);
         }}
         senderRole={userRole === "ASSISTANT" ? "ASSISTANT" : "TEACHER"}
         senderStaffId={activeStaff.id}

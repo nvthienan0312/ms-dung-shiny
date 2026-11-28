@@ -7,7 +7,14 @@ import {
   ClassLogItem,
   CENTER_BANK_CONFIG
 } from "@/data/centerData";
-import { saveMediaBlob, getMediaBlob, fileToSmallDataUrl, uploadHomeworkMediaToCloud } from "@/utils/mediaStorage";
+import {
+  saveMediaBlob,
+  getMediaBlob,
+  getMediaBlobUrl,
+  fileToSmallDataUrl,
+  uploadHomeworkMediaToCloud,
+  downloadHomeworkMedia,
+} from "@/utils/mediaStorage";
 import { getStudentDebtSummary, formatVND, calculateMonthLessons, computeStudentTuitionBreakdown } from "@/utils/tuitionHelper";
 import { getTodayDateString, parseLocalDate, getDayOfWeekLabel, getCurrentBillingMonth, getBillingMonthOptions, getDefaultTuitionDueDate } from "@/utils/dateHelper";
 
@@ -62,6 +69,8 @@ import {
   Copy,
   ExternalLink,
   Smartphone,
+  Eye,
+  Play,
   X
 } from "lucide-react";
 import { normalizePhoneNumber } from "@/utils/authHelper";
@@ -138,6 +147,16 @@ export default function ParentPortal() {
   const [isUploadingHomework, setIsUploadingHomework] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const syncedSubmissionKeysRef = useRef<Set<string>>(new Set());
+
+  // Parent Submission Viewer Modal State (Xem lại & bổ sung video/file đã nộp)
+  const [viewingSubmissionId, setViewingSubmissionId] = useState<string | null>(null);
+  const [resolvedSubMediaUrl, setResolvedSubMediaUrl] = useState<string | null>(null);
+  const [resolvedSubWbUrl, setResolvedSubWbUrl] = useState<string | null>(null);
+  const [isLoadingSubMedia, setIsLoadingSubMedia] = useState(false);
+  const [subVideoPlayError, setSubVideoPlayError] = useState(false);
+  const [subDownloadProgress, setSubDownloadProgress] = useState<number | null>(null);
+  const [reuploadProgress, setReuploadProgress] = useState<number | null>(null);
+  const reuploadFileInputRef = useRef<HTMLInputElement>(null);
 
   // Homework File Attachment State
   const [attachedFile, setAttachedFile] = useState<{
@@ -301,6 +320,112 @@ export default function ParentPortal() {
     if (!activeStudent) return [];
     return (homeworkSubmissions || []).filter((s) => s.studentId === activeStudent.id);
   }, [homeworkSubmissions, activeStudent]);
+
+  const activeViewingSubmission = useMemo(() => {
+    if (!viewingSubmissionId) return null;
+    return (homeworkSubmissions || []).find((s) => s.id === viewingSubmissionId) || null;
+  }, [homeworkSubmissions, viewingSubmissionId]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    const createdObjectUrls: string[] = [];
+
+    async function loadParentSubmissionMedia() {
+      if (!activeViewingSubmission) {
+        setResolvedSubMediaUrl(null);
+        setResolvedSubWbUrl(null);
+        setIsLoadingSubMedia(false);
+        return;
+      }
+
+      setIsLoadingSubMedia(true);
+      setSubVideoPlayError(false);
+      try {
+        let nextMain: string | null =
+          activeViewingSubmission.mediaUrl || activeViewingSubmission.attachmentFileUrl || null;
+        if (!nextMain && activeViewingSubmission.mediaStorageKey) {
+          const blobUrl = await getMediaBlobUrl(activeViewingSubmission.mediaStorageKey);
+          if (blobUrl) {
+            createdObjectUrls.push(blobUrl);
+            nextMain = blobUrl;
+          }
+        }
+
+        let nextWb: string | null = activeViewingSubmission.workbookImageUrl || null;
+        if (!nextWb && activeViewingSubmission.workbookStorageKey) {
+          const wbUrl = await getMediaBlobUrl(activeViewingSubmission.workbookStorageKey);
+          if (wbUrl) {
+            createdObjectUrls.push(wbUrl);
+            nextWb = wbUrl;
+          }
+        }
+
+        if (!isCancelled) {
+          setResolvedSubMediaUrl(nextMain);
+          setResolvedSubWbUrl(nextWb);
+        } else {
+          createdObjectUrls.forEach((u) => URL.revokeObjectURL(u));
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingSubMedia(false);
+        }
+      }
+    }
+
+    void loadParentSubmissionMedia();
+    return () => {
+      isCancelled = true;
+      createdObjectUrls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [activeViewingSubmission]);
+
+  const handleReuploadSubmissionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !activeViewingSubmission) return;
+
+    const newKey = `hw_media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const mimeType = file.type || "video/mp4";
+    const sizeStr = formatFileSize(file.size);
+
+    try {
+      await saveMediaBlob(newKey, file);
+    } catch {}
+
+    setReuploadProgress(0);
+    const cloudUrl = await uploadHomeworkMediaToCloud(file, file.name, mimeType, (pct) =>
+      setReuploadProgress(pct)
+    );
+    setReuploadProgress(null);
+
+    if (!cloudUrl) {
+      alert("Không thể tải tệp lên Cloud DB. Vui lòng kiểm tra kết nối mạng (tối đa 100MB) và thử lại!");
+      return;
+    }
+
+    patchHomeworkSubmissionMedia(activeViewingSubmission.id, {
+      mediaUrl: cloudUrl,
+      attachmentFileUrl: cloudUrl,
+      attachmentFileName: file.name,
+      attachmentFileSize: sizeStr,
+      mediaMimeType: mimeType,
+      mediaTitle: file.name,
+      mediaStorageKey: newKey,
+      ...(activeViewingSubmission.submissionType === "WORKBOOK"
+        ? {
+            workbookImageUrl: cloudUrl,
+            workbookImageFileName: file.name,
+            workbookFileSize: sizeStr,
+            workbookMimeType: mimeType,
+            workbookStorageKey: newKey,
+          }
+        : {}),
+    });
+    setResolvedSubMediaUrl(cloudUrl);
+    setSubVideoPlayError(false);
+    showToast(`✓ Đã cập nhật tệp "${file.name}" lên Cloud thành công!`);
+  };
 
   // Tự động đồng bộ các tệp video/workbook từng nộp trước đây (chỉ có trong IndexedDB máy này) lên Cloud để GV & TA xem được
   useEffect(() => {
@@ -1722,6 +1847,17 @@ export default function ParentPortal() {
                         </p>
                       </div>
                     )}
+
+                    <div className="pt-1 flex items-center justify-end gap-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setViewingSubmissionId(sub.id)}
+                        className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Xem Bài Đã Nộp</span>
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -2474,6 +2610,231 @@ export default function ParentPortal() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL XEM LẠI BÀI ĐÃ NỘP CHO PHỤ HUYNH (VIDEO/AUDIO/ẢNH/PDF) */}
+      {/* ============================================================== */}
+      {activeViewingSubmission && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[92dvh] overflow-y-auto p-4 sm:p-5 space-y-3.5">
+            <div className="flex items-start justify-between pb-2.5 border-b border-slate-100">
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900">
+                  Bài Tập Đã Nộp • {activeStudent?.fullName}
+                </span>
+                <h4 className="font-bold text-base text-slate-900 mt-1 break-words">
+                  {activeViewingSubmission.assignmentTitle}
+                </h4>
+                <p className="text-xs text-slate-500 break-all">
+                  {activeViewingSubmission.sessionTitle} • Nộp lúc{" "}
+                  {new Date(activeViewingSubmission.submittedAt).toLocaleString("vi-VN")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingSubmissionId(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <input
+              type="file"
+              ref={reuploadFileInputRef}
+              onChange={(e) => void handleReuploadSubmissionFile(e)}
+              accept="video/*,audio/*,image/*,application/pdf,.mp4,.mov,.avi,.webm,.mp3,.m4a,.wav,.jpg,.jpeg,.png,.pdf"
+              className="hidden"
+            />
+
+            {/* Media Player */}
+            <div className="p-3 bg-slate-900 text-white rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white shrink-0">
+                    <Play className="w-4 h-4 fill-white ml-0.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold truncate">
+                      {activeViewingSubmission.attachmentFileName || activeViewingSubmission.mediaTitle}
+                    </div>
+                    {activeViewingSubmission.attachmentFileSize && (
+                      <div className="text-[10px] text-blue-200 font-mono">
+                        {activeViewingSubmission.attachmentFileSize}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {resolvedSubMediaUrl && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setSubDownloadProgress(0);
+                      try {
+                        await downloadHomeworkMedia(
+                          resolvedSubMediaUrl,
+                          activeViewingSubmission.attachmentFileName || activeViewingSubmission.mediaTitle || "btvn",
+                          (pct) => setSubDownloadProgress(pct)
+                        );
+                      } finally {
+                        setSubDownloadProgress(null);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10.5px] font-bold flex items-center gap-1 shrink-0 border border-slate-700 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    {subDownloadProgress !== null ? `Đang tải (${subDownloadProgress}%)` : "Tải tệp"}
+                  </button>
+                )}
+              </div>
+
+              {isLoadingSubMedia ? (
+                <div className="py-6 text-center text-xs text-slate-300 bg-slate-950/60 rounded-xl">
+                  Đang tải video / tệp đính kèm...
+                </div>
+              ) : resolvedSubMediaUrl ? (
+                (() => {
+                  const fileNameLower = (
+                    activeViewingSubmission.attachmentFileName ||
+                    activeViewingSubmission.mediaTitle ||
+                    ""
+                  ).toLowerCase();
+                  const mime = (activeViewingSubmission.mediaMimeType || "").toLowerCase();
+                  const isAudio = mime.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|aac)$/i.test(fileNameLower);
+                  const isImage = mime.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(fileNameLower);
+                  const isPdf = mime === "application/pdf" || /\.pdf$/i.test(fileNameLower);
+
+                  if (isAudio) {
+                    return <audio controls className="w-full" src={resolvedSubMediaUrl} />;
+                  }
+                  if (isImage) {
+                    return (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolvedSubMediaUrl}
+                        alt={activeViewingSubmission.mediaTitle}
+                        className="w-full max-h-72 object-contain rounded-xl bg-black"
+                      />
+                    );
+                  }
+                  if (isPdf) {
+                    return (
+                      <iframe
+                        src={resolvedSubMediaUrl}
+                        title={activeViewingSubmission.mediaTitle}
+                        className="w-full h-72 rounded-xl bg-white"
+                      />
+                    );
+                  }
+                  return (
+                    <div className="space-y-2">
+                      <video
+                        key={resolvedSubMediaUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        src={resolvedSubMediaUrl}
+                        onError={() => setSubVideoPlayError(true)}
+                        className="w-full max-h-72 rounded-xl bg-black"
+                      />
+                      {subVideoPlayError && (
+                        <div className="p-2.5 bg-amber-950/60 border border-amber-500/40 rounded-lg text-[11px] text-amber-200 flex items-center justify-between gap-2">
+                          <span>Định dạng chưa phát trực tiếp được. Vui lòng tải tệp về để xem.</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void downloadHomeworkMedia(
+                                resolvedSubMediaUrl,
+                                activeViewingSubmission.attachmentFileName || activeViewingSubmission.mediaTitle || "video"
+                              )
+                            }
+                            className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-bold shrink-0 cursor-pointer"
+                          >
+                            Tải về
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-[11px] text-amber-300 space-y-2">
+                  <div>
+                    Tệp của lần nộp này chưa có trên Cloud DB (đã nộp trước khi nâng cấp đồng bộ Cloud). Phụ huynh có thể chọn lại tệp để tải lên ngay tại đây.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {resolvedSubWbUrl && resolvedSubWbUrl !== resolvedSubMediaUrl && (
+              <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-indigo-950 truncate">
+                    📸 {activeViewingSubmission.workbookImageFileName || "Ảnh Workbook"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void downloadHomeworkMedia(
+                        resolvedSubWbUrl,
+                        activeViewingSubmission.workbookImageFileName || "workbook"
+                      )
+                    }
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10.5px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" /> Tải về
+                  </button>
+                </div>
+                {((activeViewingSubmission.workbookMimeType || "").startsWith("image/") ||
+                  /\.(jpg|jpeg|png|gif|webp)$/i.test(activeViewingSubmission.workbookImageFileName || "")) && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={resolvedSubWbUrl}
+                    alt={activeViewingSubmission.workbookImageFileName || "Workbook"}
+                    className="w-full max-h-60 object-contain rounded-lg bg-white border border-indigo-200"
+                  />
+                )}
+              </div>
+            )}
+
+            {activeViewingSubmission.status === "GRADED" && activeViewingSubmission.taFeedback && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1">
+                <div className="font-bold text-emerald-900">
+                  Nhận xét từ {activeViewingSubmission.gradedBy || classAssistant.fullName}:
+                </div>
+                <p className="text-slate-800 italic whitespace-pre-line">
+                  &ldquo;{activeViewingSubmission.taFeedback}&rdquo;
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={reuploadProgress !== null}
+                onClick={() => reuploadFileInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                <Upload className="w-3.5 h-3.5 text-amber-600" />
+                <span>
+                  {reuploadProgress !== null
+                    ? `Đang tải lên (${reuploadProgress}%)...`
+                    : resolvedSubMediaUrl
+                    ? "Cập Nhật / Đổi Tệp"
+                    : "Tải Lên Video / Tệp"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingSubmissionId(null)}
+                className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}

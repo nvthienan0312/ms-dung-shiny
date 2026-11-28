@@ -91,6 +91,7 @@ import {
   parseMonthYear,
   getDayOfWeekNumber,
 } from "@/utils/dateHelper";
+import { getMediaBlob, uploadHomeworkMediaToCloud } from "@/utils/mediaStorage";
 
 function calculateTimesheetMetrics(
   logs: SessionWorkLog[],
@@ -237,7 +238,23 @@ interface CenterContextType {
   gradeHomeworkSubmission: (submissionId: string, score: number | undefined, taFeedback: string, gradedBy: string) => void;
   patchHomeworkSubmissionMedia: (
     submissionId: string,
-    updates: Partial<Pick<HomeworkSubmission, "mediaUrl" | "attachmentFileUrl" | "workbookImageUrl">>
+    updates: Partial<
+      Pick<
+        HomeworkSubmission,
+        | "mediaUrl"
+        | "attachmentFileUrl"
+        | "attachmentFileName"
+        | "attachmentFileSize"
+        | "mediaMimeType"
+        | "mediaTitle"
+        | "mediaStorageKey"
+        | "workbookImageUrl"
+        | "workbookImageFileName"
+        | "workbookFileSize"
+        | "workbookMimeType"
+        | "workbookStorageKey"
+      >
+    >
   ) => void;
 
   // Parent Leave Requests (Phụ huynh xin nghỉ phép & bảo lưu buổi học)
@@ -995,6 +1012,65 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   };
+
+  const syncedLocalMediaRef = useRef<Set<string>>(new Set());
+
+  // Tự động đồng bộ mọi video/ảnh BTVN cũ chỉ có trong IndexedDB máy hiện tại lên Cloud DB (bất kể tài khoản nào đang đăng nhập)
+  useEffect(() => {
+    if (!isLoaded || typeof window === "undefined" || homeworkSubmissions.length === 0) return;
+    let isCancelled = false;
+
+    async function syncMissingCloudMediaFromLocal() {
+      for (const sub of homeworkSubmissions) {
+        if (isCancelled) return;
+        const needsMain = !sub.mediaUrl && !sub.attachmentFileUrl && Boolean(sub.mediaStorageKey);
+        const needsWb = !sub.workbookImageUrl && Boolean(sub.workbookStorageKey);
+        if ((!needsMain && !needsWb) || syncedLocalMediaRef.current.has(sub.id)) continue;
+        syncedLocalMediaRef.current.add(sub.id);
+
+        const updates: Partial<HomeworkSubmission> = {};
+        if (needsMain && sub.mediaStorageKey) {
+          const blob = await getMediaBlob(sub.mediaStorageKey);
+          if (blob) {
+            const cloudUrl = await uploadHomeworkMediaToCloud(
+              blob,
+              sub.attachmentFileName || sub.mediaTitle || "homework.mp4",
+              sub.mediaMimeType || blob.type
+            );
+            if (cloudUrl) {
+              updates.mediaUrl = cloudUrl;
+              updates.attachmentFileUrl = cloudUrl;
+              if (sub.submissionType === "WORKBOOK") {
+                updates.workbookImageUrl = cloudUrl;
+              }
+            }
+          }
+        }
+        if (needsWb && sub.workbookStorageKey && !updates.workbookImageUrl) {
+          const wbBlob = await getMediaBlob(sub.workbookStorageKey);
+          if (wbBlob) {
+            const wbUrl = await uploadHomeworkMediaToCloud(
+              wbBlob,
+              sub.workbookImageFileName || "workbook",
+              sub.workbookMimeType || wbBlob.type
+            );
+            if (wbUrl) updates.workbookImageUrl = wbUrl;
+          }
+        }
+
+        if (!isCancelled && Object.keys(updates).length > 0) {
+          setHomeworkSubmissions((prev) =>
+            prev.map((item) => (item.id === sub.id ? { ...item, ...updates } : item))
+          );
+        }
+      }
+    }
+
+    void syncMissingCloudMediaFromLocal();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isLoaded, homeworkSubmissions]);
 
   // Recalculate student counts for classes (Chỉ đếm học sinh đang theo học)
   const getStudentCountForClass = (classId: string, currentStudentList: StudentItem[]) => {
@@ -2251,7 +2327,23 @@ export function CenterProvider({ children }: { children: React.ReactNode }) {
 
   const patchHomeworkSubmissionMedia = (
     submissionId: string,
-    updates: Partial<Pick<HomeworkSubmission, "mediaUrl" | "attachmentFileUrl" | "workbookImageUrl">>
+    updates: Partial<
+      Pick<
+        HomeworkSubmission,
+        | "mediaUrl"
+        | "attachmentFileUrl"
+        | "attachmentFileName"
+        | "attachmentFileSize"
+        | "mediaMimeType"
+        | "mediaTitle"
+        | "mediaStorageKey"
+        | "workbookImageUrl"
+        | "workbookImageFileName"
+        | "workbookFileSize"
+        | "workbookMimeType"
+        | "workbookStorageKey"
+      >
+    >
   ) => {
     setHomeworkSubmissions((prev) =>
       prev.map((sub) => (sub.id === submissionId ? { ...sub, ...updates } : sub))
